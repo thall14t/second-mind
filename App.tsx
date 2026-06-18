@@ -1806,6 +1806,15 @@ export default function App() {
     () => buildCaptureProcessingJobViews(captureJobsApi.activeProcessingJobs, inboxCaptures),
     [captureJobsApi.activeProcessingJobs, inboxCaptures]
   );
+  const captureJobsByCaptureId = useMemo(() => {
+    const map: Record<string, typeof captureJobs[number]> = {};
+    for (const job of captureJobs) {
+      if (job.status !== 'completed') {
+        map[job.captureId] = job;
+      }
+    }
+    return map;
+  }, [captureJobs]);
 
   const renderHomeScreen = () => (
     <HomeScreen
@@ -2049,6 +2058,7 @@ export default function App() {
     <InboxScreen
       darkMode={settings.darkMode}
       captures={inboxCaptures}
+      captureJobsByCaptureId={captureJobsByCaptureId}
       onQuickCapture={() => {
         resetCaptureForm();
         setCurrentScreen('quickCapture');

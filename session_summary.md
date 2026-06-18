@@ -510,7 +510,8 @@ On `feature/phase-a-routing`, continue **Phase A — Unified AI Capture Routing*
 4. [x] **A4** (2026-06-18): Quick Capture single-submit, `useCaptureRouting` job pipeline (classify → enrich/generate).
 5. [x] **A5** (2026-06-18): Home processing indicator + tap-to-expand job list modal.
 6. [x] **A6** (2026-06-18): File This prefills newCard from `capture.enrichment.structuredDraft`.
-7. **A7–A8**: Enriched inbox UI, clarifying modal.
+7. [x] **A7** (2026-06-18): Inbox enriched-state UI — Ready to file badge, structured preview, primary File This.
+8. **A8**: Clarifying modal.
 
 ---
 

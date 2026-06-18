@@ -255,6 +255,66 @@ export function inboxCaptureIsReadyToFile(capture: InboxCapture): boolean {
   return Boolean(getInboxCaptureStructuredDraft(capture));
 }
 
+export type InboxCaptureDisplayStatus =
+  | 'processing'
+  | 'ready_to_file'
+  | 'awaiting_clarification'
+  | 'failed'
+  | 'raw';
+
+export function getInboxCaptureDisplayStatus(
+  capture: InboxCapture,
+  job?: CaptureJob
+): InboxCaptureDisplayStatus {
+  if (job) {
+    if (isProcessingCaptureJobStatus(job.status)) {
+      return 'processing';
+    }
+    if (job.status === 'awaiting_clarification') {
+      return 'awaiting_clarification';
+    }
+    if (job.status === 'failed') {
+      return 'failed';
+    }
+  }
+
+  if (inboxCaptureIsReadyToFile(capture)) {
+    return 'ready_to_file';
+  }
+
+  return 'raw';
+}
+
+export function getInboxCaptureStatusLabel(status: InboxCaptureDisplayStatus): string | null {
+  switch (status) {
+    case 'processing':
+      return 'Processing';
+    case 'ready_to_file':
+      return 'Ready to file';
+    case 'awaiting_clarification':
+      return 'Needs input';
+    case 'failed':
+      return 'Needs review';
+    default:
+      return null;
+  }
+}
+
+export function getInboxCaptureDisplayTitle(capture: InboxCapture): string {
+  const draft = getInboxCaptureStructuredDraft(capture);
+  const title = draft?.suggestedTitle?.trim() || capture.title.trim();
+  return title || 'Untitled capture';
+}
+
+export function getInboxCaptureDisplayPreview(capture: InboxCapture): string {
+  const draft = getInboxCaptureStructuredDraft(capture);
+  if (draft?.suggestedContent?.trim()) {
+    return draft.suggestedContent.trim();
+  }
+
+  return capture.content.trim();
+}
+
 export function applyEnrichmentToCapture(
   capture: InboxCapture,
   enrichment: CaptureStructuringResult,

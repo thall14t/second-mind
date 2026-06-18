@@ -56,6 +56,9 @@ function loadModules() {
     getCaptureJobStatusLabel,
     getInboxCaptureStructuredDraft,
     inboxCaptureIsReadyToFile,
+    getInboxCaptureDisplayStatus,
+    getInboxCaptureDisplayTitle,
+    getInboxCaptureStatusLabel,
   } = require(path.join(buildDir, 'utils', 'captureJobs.js'));
 
   return {
@@ -66,6 +69,9 @@ function loadModules() {
     getCaptureJobStatusLabel,
     getInboxCaptureStructuredDraft,
     inboxCaptureIsReadyToFile,
+    getInboxCaptureDisplayStatus,
+    getInboxCaptureDisplayTitle,
+    getInboxCaptureStatusLabel,
     createCaptureJob,
     getActiveProcessingJobs,
     mapTodoGenerationToTodos,
@@ -93,6 +99,9 @@ function runTests() {
     getCaptureJobStatusLabel,
     getInboxCaptureStructuredDraft,
     inboxCaptureIsReadyToFile,
+    getInboxCaptureDisplayStatus,
+    getInboxCaptureDisplayTitle,
+    getInboxCaptureStatusLabel,
   } = loadModules();
 
   const signals = buildClassificationLocalSignals('', '- buy milk\n- call dentist\n1. finish report');
@@ -175,6 +184,16 @@ function runTests() {
   assert.strictEqual(getInboxCaptureStructuredDraft(enriched)?.suggestedTitle, 'Title');
   assert.strictEqual(inboxCaptureIsReadyToFile(enriched), true);
   assert.strictEqual(inboxCaptureIsReadyToFile({ id: 'raw', title: 'T', content: 'Body', createdAt: '2026-01-01T00:00:00.000Z' }), false);
+  assert.strictEqual(getInboxCaptureDisplayTitle(enriched), 'Title');
+  assert.strictEqual(getInboxCaptureDisplayStatus(enriched), 'ready_to_file');
+  assert.strictEqual(getInboxCaptureStatusLabel('ready_to_file'), 'Ready to file');
+  assert.strictEqual(
+    getInboxCaptureDisplayStatus(
+      { id: 'raw', title: 'T', content: 'Body', createdAt: '2026-01-01T00:00:00.000Z' },
+      { ...job, status: 'classifying' }
+    ),
+    'processing'
+  );
 
   console.log('All capture job utils tests passed.');
 }

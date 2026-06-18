@@ -74,7 +74,7 @@ import {
   validateCategoryAddress,
 } from './utils/antinet';
 import { parseTodosFromCapture } from './utils/todoParsing';
-import { pruneCaptureJobs } from './utils/captureJobs';
+import { buildCaptureProcessingJobViews, pruneCaptureJobs } from './utils/captureJobs';
 import { normalizeTodoDueDateInput } from './utils/todoDates';
 import {
   collectDescendantIds,
@@ -1794,12 +1794,17 @@ export default function App() {
   };
 
   const openTodoCount = todos.filter(todo => !todo.completed).length;
+  const processingJobs = useMemo(
+    () => buildCaptureProcessingJobViews(captureJobsApi.activeProcessingJobs, inboxCaptures),
+    [captureJobsApi.activeProcessingJobs, inboxCaptures]
+  );
 
   const renderHomeScreen = () => (
     <HomeScreen
       cardCount={cards.length}
       inboxCount={inboxCaptures.length}
       todoCount={openTodoCount}
+      processingJobs={processingJobs}
       darkMode={settings.darkMode}
       onAskCards={() => setCurrentScreen('askCards')}
       onQuickCapture={() => {

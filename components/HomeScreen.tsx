@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import { styles } from '../styles';
 import { getTheme } from '../theme';
 import { APP_NAME, APP_TAGLINE } from '../branding';
+import CaptureProcessingPanel, { CaptureProcessingIndicator } from './CaptureProcessingPanel';
+import { CaptureProcessingJobView } from '../utils/captureJobs';
 
 interface HomeScreenProps {
   cardCount: number;
   inboxCount: number;
   todoCount: number;
+  processingJobs: CaptureProcessingJobView[];
   darkMode: boolean;
   onAskCards: () => void;
   onQuickCapture: () => void;
@@ -24,6 +27,7 @@ export default function HomeScreen({
   cardCount,
   inboxCount,
   todoCount,
+  processingJobs,
   darkMode,
   onAskCards,
   onQuickCapture,
@@ -35,7 +39,14 @@ export default function HomeScreen({
   onOpenSettings,
   onOpenHelp,
 }: HomeScreenProps) {
+  const [processingPanelVisible, setProcessingPanelVisible] = useState(false);
   const theme = getTheme(darkMode);
+
+  useEffect(() => {
+    if (processingJobs.length === 0) {
+      setProcessingPanelVisible(false);
+    }
+  }, [processingJobs.length]);
   const cardShadow = darkMode
     ? { shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 8 }
     : { shadowColor: theme.shadow, shadowOpacity: 0.16, shadowRadius: 20, shadowOffset: { width: 0, height: 12 }, elevation: 7 };
@@ -107,6 +118,18 @@ export default function HomeScreen({
           </TouchableOpacity>
         </View>
       </View>
+
+      <CaptureProcessingIndicator
+        darkMode={darkMode}
+        jobs={processingJobs}
+        onPress={() => setProcessingPanelVisible(true)}
+      />
+      <CaptureProcessingPanel
+        darkMode={darkMode}
+        jobs={processingJobs}
+        visible={processingPanelVisible}
+        onClose={() => setProcessingPanelVisible(false)}
+      />
 
       <View style={styles.homePrimaryActions}>
         <TouchableOpacity

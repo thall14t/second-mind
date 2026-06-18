@@ -271,6 +271,77 @@ export function resolveCaptureRoute(job: CaptureJob): CaptureRoute | null {
   return job.classification?.route ?? null;
 }
 
+export interface CaptureProcessingJobView {
+  jobId: string;
+  captureId: string;
+  status: CaptureJobStatus;
+  previewTitle: string;
+  previewContent: string;
+}
+
+export function getCaptureJobStatusLabel(status: CaptureJobStatus): string {
+  switch (status) {
+    case 'pending':
+      return 'Queued';
+    case 'classifying':
+      return 'Classifying';
+    case 'enriching':
+      return 'Preparing card';
+    case 'generating_todos':
+      return 'Creating todos';
+    case 'awaiting_clarification':
+      return 'Needs your input';
+    case 'completed':
+      return 'Done';
+    case 'failed':
+      return 'Failed';
+    default:
+      return 'Processing';
+  }
+}
+
+export function buildCaptureJobPreview(capture?: InboxCapture): { previewTitle: string; previewContent: string } {
+  if (!capture) {
+    return {
+      previewTitle: 'Capture',
+      previewContent: 'Waiting for capture details...',
+    };
+  }
+
+  return {
+    previewTitle: capture.title.trim() || 'Untitled capture',
+    previewContent: capture.content.trim() || 'No preview available.',
+  };
+}
+
+export function buildCaptureProcessingJobViews(
+  jobs: CaptureJob[],
+  inboxCaptures: InboxCapture[]
+): CaptureProcessingJobView[] {
+  const captureById = new Map(inboxCaptures.map(capture => [capture.id, capture]));
+
+  return getActiveProcessingJobs(jobs).map(job => {
+    const preview = buildCaptureJobPreview(captureById.get(job.captureId));
+    return {
+      jobId: job.id,
+      captureId: job.captureId,
+      status: job.status,
+      previewTitle: preview.previewTitle,
+      previewContent: preview.previewContent,
+    };
+  });
+}
+
+export function buildCaptureProcessingLabel(count: number): string {
+  if (count <= 0) {
+    return '';
+  }
+
+  return count === 1
+    ? 'Processing 1 capture'
+    : `Processing ${count} captures`;
+}
+
 export function countLinesMatchingBullets(content: string): number {
   return content
     .split('\n')

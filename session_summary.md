@@ -508,7 +508,8 @@ On `feature/phase-a-routing`, continue **Phase A — Unified AI Capture Routing*
 2. [x] **A2** (2026-06-18): Capture job types, `utils/captureJobs.ts`, `useCaptureJobs` hook, `secondMindCaptureJobs.json` persistence.
 3. [x] **A3** (2026-06-18): Server endpoints `classify-capture`, `enrich-card-capture`, `generate-todos` in `server/captureRouting.js`.
 4. [x] **A4** (2026-06-18): Quick Capture single-submit, `useCaptureRouting` job pipeline (classify → enrich/generate).
-5. **A5–A8**: Home processing indicator, inbox prefilled draft, enriched inbox UI, clarifying modal.
+5. [x] **A5** (2026-06-18): Home processing indicator + tap-to-expand job list modal.
+6. **A6–A8**: Inbox prefilled draft, enriched inbox UI, clarifying modal.
 
 ---
 

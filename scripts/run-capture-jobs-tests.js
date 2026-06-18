@@ -51,11 +51,17 @@ function loadModules() {
     upsertCaptureJob,
     applyEnrichmentToCapture,
     buildLocalClassificationFallback,
+    buildCaptureProcessingJobViews,
+    buildCaptureProcessingLabel,
+    getCaptureJobStatusLabel,
   } = require(path.join(buildDir, 'utils', 'captureJobs.js'));
 
   return {
     buildClassificationLocalSignals,
     buildLocalClassificationFallback,
+    buildCaptureProcessingJobViews,
+    buildCaptureProcessingLabel,
+    getCaptureJobStatusLabel,
     createCaptureJob,
     getActiveProcessingJobs,
     mapTodoGenerationToTodos,
@@ -78,6 +84,9 @@ function runTests() {
     upsertCaptureJob,
     applyEnrichmentToCapture,
     buildLocalClassificationFallback,
+    buildCaptureProcessingJobViews,
+    buildCaptureProcessingLabel,
+    getCaptureJobStatusLabel,
   } = loadModules();
 
   const signals = buildClassificationLocalSignals('', '- buy milk\n- call dentist\n1. finish report');
@@ -136,6 +145,19 @@ function runTests() {
     looksLikeQuote: false,
   });
   assert.strictEqual(clarifyFallback.needsClarification, true);
+
+  assert.strictEqual(buildCaptureProcessingLabel(2), 'Processing 2 captures');
+  assert.strictEqual(getCaptureJobStatusLabel('classifying'), 'Classifying');
+
+  const views = buildCaptureProcessingJobViews(
+    [
+      { ...job, id: 'job-active', status: 'enriching' },
+      { ...job, id: 'job-done', status: 'completed' },
+    ],
+    [{ id: 'capture-1', title: 'Garden idea', content: 'Plant tomatoes', createdAt: '2026-01-01T00:00:00.000Z' }]
+  );
+  assert.strictEqual(views.length, 1);
+  assert.strictEqual(views[0].previewTitle, 'Garden idea');
 
   const enriched = applyEnrichmentToCapture(
     { id: 'cap-1', title: 'T', content: 'Body', createdAt: '2026-01-01T00:00:00.000Z' },

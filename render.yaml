@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: second-mind-ai
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: node server/index.js
+    envVars:
+      - key: AI_PROVIDER
+        value: xai
+      - key: AI_BASE_URL
+        value: https://api.x.ai/v1
+      - key: AI_MODEL
+        value: grok-4-1-fast
+      # Set XAI_API_KEY manually in the Render dashboard under Environment
+      # Do NOT put your real key here

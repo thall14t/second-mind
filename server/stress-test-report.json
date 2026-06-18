@@ -1,0 +1,1196 @@
+{
+  "summary": {
+    "totalCases": 20,
+    "seriousIssueCases": 0,
+    "avgStructureMs": 26948,
+    "avgFilingMs": 46202,
+    "maxStructureMs": 70298,
+    "maxFilingMs": 69240
+  },
+  "results": [
+    {
+      "id": "T01",
+      "label": "Misspelled book title + page + quote",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 22754,
+        "result": {
+          "suggestedTitle": "",
+          "suggestedContent": "We all learned the multiplication table at school.",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Mere Christianity",
+            "author": "C.S. Lewis",
+            "url": "",
+            "page": "24",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 42905,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "0001",
+          "suggestedCategoryRange": "0001",
+          "suggestedCategoryTitle": "Natural Laws",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "0001a",
+          "suggestedTitle": "We all learned the multiplication table at school",
+          "suggestedContent": "We all learned the multiplication table at school.",
+          "suggestedTags": [
+            "natural laws",
+            "mathematics",
+            "common knowledge"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Mere Christianity",
+            "author": "C.S. Lewis",
+            "url": "",
+            "page": "24",
+            "note": ""
+          },
+          "reasoning": "Draft is an example of shared learned truth from Lewis, fitting reasonably under existing Natural Laws leaf (first in philosophy range and thematically linked to universal laws in Mere Christianity). Preferred over 0102 Knowledge as that leaf focuses on Zettelkasten systems per existing cards. No strong relations to current cards. Content and source extracted as given.",
+          "confidence": 60
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T02",
+      "label": "Bible verse with wrong book name",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 70298,
+        "result": {
+          "suggestedTitle": "Act Like Men",
+          "suggestedContent": "Be watchful, stand firm in the faith, act like men, be strong. Let everything you do be done in love.",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "1 Corinthians",
+            "author": "",
+            "url": "",
+            "page": "16:13-14",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 64355,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "4201",
+          "suggestedCategoryRange": "4201",
+          "suggestedCategoryTitle": "Masculinity",
+          "suggestedNewCategoryRange": "4201",
+          "suggestedNewCategoryTitle": "Masculinity",
+          "suggestedCardAddress": "4201a",
+          "suggestedTitle": "Act Like Men",
+          "suggestedContent": "Be watchful, stand firm in the faith, act like men, be strong. Let everything you do be done in love.",
+          "suggestedTags": [
+            "masculinity",
+            "gender-roles",
+            "bible",
+            "virtue"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "1 Corinthians",
+            "author": "Paul",
+            "url": "",
+            "page": "16:13-14",
+            "note": ""
+          },
+          "reasoning": "Draft is a biblical quote on manly behavior/strength in faith. No existing leaves (etymology/journalism) fit. Closest available range is 4200-4299 for gender roles; created narrow leaf 4201 for masculinity concepts in sociological/cultural context. Card gets first address 4201a.",
+          "confidence": 65
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T03",
+      "label": "Original aphorism with by in sentence",
+      "expectsSource": false,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 26491,
+        "result": {
+          "suggestedTitle": "Masculinity as Responsibility",
+          "suggestedContent": "Masculinity is characterized by the adoption of responsibility",
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 24389,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "4201",
+          "suggestedCategoryRange": "4201",
+          "suggestedCategoryTitle": "Masculinity",
+          "suggestedNewCategoryRange": "4201",
+          "suggestedNewCategoryTitle": "Masculinity",
+          "suggestedCardAddress": "4201a",
+          "suggestedTitle": "Masculinity as Responsibility",
+          "suggestedContent": "Masculinity is characterized by the adoption of responsibility",
+          "suggestedTags": [
+            "masculinity",
+            "responsibility",
+            "gender roles"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [],
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "No existing leaf categories (Etymology, Journalism) are relevant. The idea fits cleanly under the available 4200-4299 range for Sex, Gender Roles, and Biological Differences. Creating new leaf 4201 'Masculinity' as the narrowest practical category; this becomes its first card.",
+          "confidence": 75
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T04",
+      "label": "Web article with URL and author",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 41644,
+        "result": {
+          "suggestedTitle": "Environment Over Intention",
+          "suggestedContent": "Environment shapes behavior more than intention",
+          "suggestedSource": {
+            "type": "Article",
+            "title": "Atomic Habits",
+            "author": "James Clear",
+            "url": "https://jamesclear.com/atomic-habits",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 56036,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "9005",
+          "suggestedCategoryRange": "9005",
+          "suggestedCategoryTitle": "Habit Formation",
+          "suggestedNewCategoryRange": "9005",
+          "suggestedNewCategoryTitle": "Habit Formation",
+          "suggestedCardAddress": "9005a",
+          "suggestedTitle": "Environment Over Intention",
+          "suggestedContent": "Environment shapes behavior more than intention",
+          "suggestedTags": [
+            "environment",
+            "habits",
+            "behavior",
+            "intention"
+          ],
+          "suggestedStatus": "Evergreen",
+          "suggestedRelatedAddresses": [
+            "9102b"
+          ],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Atomic Habits",
+            "author": "James Clear",
+            "url": "https://jamesclear.com/atomic-habits",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "No existing leaf category fits well for core Atomic Habits concept of environment designing behavior. 9102 is closest due to related card 9102b on environment vs willpower but is narrowly about time management. New 9005 under Self-Awareness and Personal Growth for habit formation. Card uses next available address.",
+          "confidence": 70
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T05",
+      "label": "Podcast with timestamp",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 44348,
+        "result": {
+          "suggestedTitle": "Moral Intuitions Precede Reasoning",
+          "suggestedContent": "moral intuitions often arrive before reasoning",
+          "suggestedSource": {
+            "type": "Video",
+            "title": "Lex Fridman Podcast",
+            "author": "Lex Fridman",
+            "url": "",
+            "page": "12:43",
+            "note": "with Jonathan Haidt"
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 68269,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "3401",
+          "suggestedCategoryRange": "3400-3499",
+          "suggestedCategoryTitle": "Social Psychology",
+          "suggestedNewCategoryRange": "3401",
+          "suggestedNewCategoryTitle": "Moral Psychology",
+          "suggestedCardAddress": "3401a",
+          "suggestedTitle": "Moral Intuitions Precede Reasoning",
+          "suggestedContent": "Moral intuitions often arrive before reasoning.",
+          "suggestedTags": [
+            "morality",
+            "intuition",
+            "reasoning",
+            "haidt"
+          ],
+          "suggestedStatus": "Evergreen",
+          "suggestedRelatedAddresses": [],
+          "suggestedSource": {
+            "type": "Video",
+            "title": "Lex Fridman Podcast",
+            "author": "Lex Fridman",
+            "url": "",
+            "page": "12:43",
+            "note": "with Jonathan Haidt"
+          },
+          "reasoning": "No existing leaf (Linguistics or Success) fits. New 3401 leaf created under Social Psychology range for Moral Psychology, as the intuition-first model is core to Haidt's social psych research. Card starts at 3401a. No relevant existing cards for relations. Source metadata extracted as provided.",
+          "confidence": 70
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T06",
+      "label": "Article with section heading",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 27653,
+        "result": {
+          "suggestedTitle": "Eyes on the Street",
+          "suggestedContent": "Cities need eyes on the street",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "The Death and Life of Great American Cities",
+            "author": "Jane Jacobs",
+            "url": "",
+            "page": "Chapter 2",
+            "note": "Sidewalks"
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 32057,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "",
+          "suggestedCategoryRange": "",
+          "suggestedCategoryTitle": "",
+          "suggestedNewCategoryRange": "4701",
+          "suggestedNewCategoryTitle": "Eyes on the Street",
+          "suggestedCardAddress": "4701a",
+          "suggestedTitle": "Eyes on the Street",
+          "suggestedContent": "Cities need eyes on the street",
+          "suggestedTags": [
+            "urbanism",
+            "safety",
+            "sidewalks",
+            "jacobs"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "The Death and Life of Great American Cities",
+            "author": "Jane Jacobs",
+            "url": "",
+            "page": "Chapter 2",
+            "note": "Sidewalks"
+          },
+          "reasoning": "No existing leaves (etymology/journalism) fit this Jane Jacobs urban sociology concept. Best match is new leaf in Urbanization and Communities range using next available 4701. Card starts at 4701a.",
+          "confidence": 70
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T07",
+      "label": "Dash-delimited source trail",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 25492,
+        "result": {
+          "suggestedTitle": "Environment Before Willpower",
+          "suggestedContent": "Attention is budgeted by environment before it is budgeted by willpower",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Deep Work",
+            "author": "Cal Newport",
+            "url": "",
+            "page": "103",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 55323,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "9102",
+          "suggestedCategoryRange": "9102",
+          "suggestedCategoryTitle": "Intentional Time Management",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "9102d",
+          "suggestedTitle": "Environment Before Willpower",
+          "suggestedContent": "Attention is budgeted by environment before it is budgeted by willpower",
+          "suggestedTags": [
+            "attention",
+            "environment",
+            "willpower"
+          ],
+          "suggestedStatus": "Evergreen",
+          "suggestedRelatedAddresses": [
+            "9102b"
+          ],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Deep Work",
+            "author": "Cal Newport",
+            "url": "",
+            "page": "103",
+            "note": ""
+          },
+          "reasoning": "Exact content match with existing 9102b in Intentional Time Management; this category is the clear fit for attention allocation in productivity. Use next address 9102d per leaf metadata. No need for new category.",
+          "confidence": 80
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T08",
+      "label": "Title by author short pattern",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 21082,
+        "result": {
+          "suggestedTitle": "Objective Value Prior to Preference",
+          "suggestedContent": "Objective value is prior to preference.",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "The Abolition of Man",
+            "author": "C. S. Lewis",
+            "url": "",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 42512,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "0001",
+          "suggestedCategoryRange": "0001",
+          "suggestedCategoryTitle": "Natural Laws",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "0001a",
+          "suggestedTitle": "Objective Value Prior to Preference",
+          "suggestedContent": "Objective value is prior to preference.",
+          "suggestedTags": [
+            "objective value",
+            "natural law",
+            "preference"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "The Abolition of Man",
+            "author": "C. S. Lewis",
+            "url": "",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "Fits existing 0001 Natural Laws as this core idea from Lewis directly supports his defense of the Tao/objective values against subjectivism. No stronger match among leaves like 0301 (focused on ethical action). Using first available address 0001a.",
+          "confidence": 70
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T09",
+      "label": "Chapter but no page",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 41653,
+        "result": {
+          "suggestedTitle": "Forgiving Without Excusing",
+          "suggestedContent": "Forgiveness is not excusing evil but surrendering revenge",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Mere Christianity",
+            "author": "C. S. Lewis",
+            "url": "",
+            "page": "Chapter 5",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 34004,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "0301",
+          "suggestedCategoryRange": "0301",
+          "suggestedCategoryTitle": "Ethical Action",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "0301d",
+          "suggestedTitle": "Forgiving Without Excusing",
+          "suggestedContent": "Forgiveness is not excusing evil but surrendering revenge",
+          "suggestedTags": [
+            "forgiveness",
+            "ethics",
+            "revenge"
+          ],
+          "suggestedStatus": "Evergreen",
+          "suggestedRelatedAddresses": [
+            "0301a",
+            "0301b",
+            "0301c"
+          ],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Mere Christianity",
+            "author": "C. S. Lewis",
+            "url": "",
+            "page": "Chapter 5",
+            "note": ""
+          },
+          "reasoning": "Concept centers on the moral choice and definition of forgiveness as an action, fitting reasonably under existing Ethical Action (0301) rather than forcing a new leaf. No tighter match in other leaves like Wisdom or Knowledge.",
+          "confidence": 65
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T10",
+      "label": "Plain note no source cues",
+      "expectsSource": false,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 17701,
+        "result": {
+          "suggestedTitle": "Hierarchy of Duties",
+          "suggestedContent": "A hierarchy of duties clarifies what must not be traded away under pressure",
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 40760,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "0301",
+          "suggestedCategoryRange": "0301",
+          "suggestedCategoryTitle": "Ethical Action",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "0301d",
+          "suggestedTitle": "Hierarchy of Duties",
+          "suggestedContent": "A hierarchy of duties clarifies what must not be traded away under pressure",
+          "suggestedTags": [
+            "ethics",
+            "duties",
+            "hierarchy",
+            "responsibility"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [
+            "0301c"
+          ],
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "The idea directly supports ethical decision-making by identifying non-negotiable duties under pressure. It aligns closely with 0301 Ethical Action (esp. 0301c on trading responsibility and 0301b on integrity). No better-fitting existing leaf exists; new category not needed per preference for existing when relevant.",
+          "confidence": 75
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T11",
+      "label": "Likely existing category theology/ethics note",
+      "expectsSource": false,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 16447,
+        "result": {
+          "suggestedTitle": "Balance of Conviction and Love",
+          "suggestedContent": "Conviction without love becomes hardness; love without conviction becomes drift",
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 41368,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "0301",
+          "suggestedCategoryRange": "0301",
+          "suggestedCategoryTitle": "Ethical Action",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "0301d",
+          "suggestedTitle": "Balance of Conviction and Love",
+          "suggestedContent": "Conviction without love becomes hardness; love without conviction becomes drift",
+          "suggestedTags": [
+            "ethics",
+            "balance",
+            "conviction",
+            "love"
+          ],
+          "suggestedStatus": "Evergreen",
+          "suggestedRelatedAddresses": [
+            "0301b"
+          ],
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "The core idea is a practical ethical principle warning against imbalance in moral life. It aligns closely with the existing 0301 Ethical Action leaf (integrity, responsibility, small actions) and is more relevant there than to Wisdom or Knowledge. No new category needed.",
+          "confidence": 70
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T12",
+      "label": "Likely new category if needed in psychology/gender",
+      "expectsSource": false,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 22660,
+        "result": {
+          "suggestedTitle": "Male Initiation Rites",
+          "suggestedContent": "Male initiation rites transform status by linking responsibility, pain, and public recognition",
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 63353,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "4201",
+          "suggestedCategoryRange": "4201",
+          "suggestedCategoryTitle": "Male Initiation Rites",
+          "suggestedNewCategoryRange": "4201",
+          "suggestedNewCategoryTitle": "Male Initiation Rites",
+          "suggestedCardAddress": "4201a",
+          "suggestedTitle": "Male Initiation Rites",
+          "suggestedContent": "Male initiation rites transform status by linking responsibility, pain, and public recognition",
+          "suggestedTags": [
+            "initiation",
+            "rites",
+            "gender",
+            "masculinity",
+            "status"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [],
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "Existing leaves (Etymology, Journalism) do not fit. New leaf at next available address in gender roles range best matches the male-specific cultural practices for status transformation via rites; no source metadata present in draft.",
+          "confidence": 60
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T13",
+      "label": "Messy punctuation and quotes",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 25319,
+        "result": {
+          "suggestedTitle": "Space for Choice",
+          "suggestedContent": "Between stimulus and response there is a space",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Man's Search for Meaning",
+            "author": "Viktor Frankl",
+            "url": "",
+            "page": "75",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 61123,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "0700-0799",
+          "suggestedCategoryRange": "0700-0799",
+          "suggestedCategoryTitle": "Existentialism and Phenomenology",
+          "suggestedNewCategoryRange": "0701",
+          "suggestedNewCategoryTitle": "Existential Choice",
+          "suggestedCardAddress": "0701a",
+          "suggestedTitle": "Space Between Stimulus and Response",
+          "suggestedContent": "Between stimulus and response there is a space",
+          "suggestedTags": [
+            "choice",
+            "response",
+            "freedom",
+            "responsibility"
+          ],
+          "suggestedStatus": "Evergreen",
+          "suggestedRelatedAddresses": [
+            "0301b",
+            "0301c"
+          ],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Man's Search for Meaning",
+            "author": "Viktor Frankl",
+            "url": "",
+            "page": "75",
+            "note": ""
+          },
+          "reasoning": "Core Frankl insight on human freedom to choose fits existential philosophy better than existing leaves like 0301 Ethical Action (too applied) or 0101 Wisdom. New 0701 leaf created under available Existentialism range as no current category captures it well.",
+          "confidence": 65
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T14",
+      "label": "Source in separate field",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 13387,
+        "result": {
+          "suggestedTitle": "Obedience Stabilizes Identity",
+          "suggestedContent": "Identity is stabilized by repeated obedience",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "The Common Rule",
+            "author": "Justin Whitmel Earley",
+            "url": "",
+            "page": "19",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 57672,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "9001",
+          "suggestedCategoryRange": "9001",
+          "suggestedCategoryTitle": "Personal Philosophy",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "9001d",
+          "suggestedTitle": "Obedience Stabilizes Identity",
+          "suggestedContent": "Identity is stabilized by repeated obedience",
+          "suggestedTags": [
+            "identity",
+            "obedience",
+            "habits",
+            "behavior"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [
+            "9001b",
+            "9003a"
+          ],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "The Common Rule",
+            "author": "Justin Whitmel Earley",
+            "url": "",
+            "page": "19",
+            "note": ""
+          },
+          "reasoning": "Fits existing 9001 Personal Philosophy as it concerns how repeated behaviors shape the self, similar to 9001b on values needing behaviors. Touches agency (9003a) but philosophy is the stronger leaf match without needing a new category.",
+          "confidence": 60
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T15",
+      "label": "Video transcript style",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 34467,
+        "result": {
+          "suggestedTitle": "Expertise Hides Ignorance",
+          "suggestedContent": "Expertise can hide ignorance of fundamentals.",
+          "suggestedSource": {
+            "type": "Video",
+            "title": "",
+            "author": "Veritasium",
+            "url": "",
+            "page": "8:14",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 69240,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "0102",
+          "suggestedCategoryRange": "0102",
+          "suggestedCategoryTitle": "Knowledge",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "0102e",
+          "suggestedTitle": "Expertise Hides Ignorance",
+          "suggestedContent": "Expertise can hide ignorance of fundamentals.",
+          "suggestedTags": [
+            "expertise",
+            "ignorance",
+            "fundamentals",
+            "knowledge"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [
+            "0102d"
+          ],
+          "suggestedSource": {
+            "type": "Video",
+            "title": "",
+            "author": "Veritasium",
+            "url": "",
+            "page": "8:14",
+            "note": ""
+          },
+          "reasoning": "The core idea concerns the limits and illusions within knowledge structures, directly aligning with the existing 0102 Knowledge leaf (next address 0102e). It connects thematically to 0102d on first principles and reducing to fundamentals. No stronger match in Wisdom or Intellectual Pursuit; new category unnecessary.",
+          "confidence": 65
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T16",
+      "label": "Scientific paper citation",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 8141,
+        "result": {
+          "suggestedTitle": "Asymmetric Loss Aversion",
+          "suggestedContent": "loss aversion is stronger than symmetrical gain seeking",
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Thinking, Fast and Slow",
+            "author": "Daniel Kahneman",
+            "url": "",
+            "page": "45",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 41760,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "3002",
+          "suggestedCategoryRange": "3002",
+          "suggestedCategoryTitle": "Loss Aversion",
+          "suggestedNewCategoryRange": "3002",
+          "suggestedNewCategoryTitle": "Loss Aversion",
+          "suggestedCardAddress": "3002a",
+          "suggestedTitle": "Asymmetric Loss Aversion",
+          "suggestedContent": "Loss aversion is stronger than symmetrical gain seeking.",
+          "suggestedTags": [
+            "loss aversion",
+            "prospect theory",
+            "decision making"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [],
+          "suggestedSource": {
+            "type": "Book",
+            "title": "Thinking, Fast and Slow",
+            "author": "Daniel Kahneman",
+            "url": "",
+            "page": "45",
+            "note": ""
+          },
+          "reasoning": "No existing leaf categories (Linguistics or Success) are relevant. Created new 3002 under Cognitive Psychology for this Kahneman concept on asymmetric biases in decision-making; fits better than Emotions/Motivation or Behavioral ranges.",
+          "confidence": 75
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T17",
+      "label": "Ambiguous source should stay blank",
+      "expectsSource": false,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 21403,
+        "result": {
+          "suggestedTitle": "Action Before Identity",
+          "suggestedContent": "Discipline feels like loss until identity catches up with action",
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 32549,
+        "result": {
+          "mode": "new_category",
+          "suggestedCategoryId": "9005",
+          "suggestedCategoryRange": "9005",
+          "suggestedCategoryTitle": "Action and Identity",
+          "suggestedNewCategoryRange": "9005",
+          "suggestedNewCategoryTitle": "Action and Identity",
+          "suggestedCardAddress": "9005a",
+          "suggestedTitle": "Action Before Identity",
+          "suggestedContent": "Discipline feels like loss until identity catches up with action",
+          "suggestedTags": [
+            "discipline",
+            "identity",
+            "action"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [
+            "9003a",
+            "9001b"
+          ],
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "Core idea on taking disciplined action to reshape identity fits Self-Awareness/Personal Growth but no existing leaf (Agency, Purpose, Personal Philosophy) matches closely enough. New 9005 created. Links to small promises (9003a) and values needing behaviors (9001b).",
+          "confidence": 65
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T18",
+      "label": "Multiple domains in one note",
+      "expectsSource": false,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 25475,
+        "result": {
+          "suggestedTitle": "Liturgies Shape Loves",
+          "suggestedContent": "Liturgies shape loves; repeated practices train desire long before explicit doctrine does",
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 38036,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "0301",
+          "suggestedCategoryRange": "0301",
+          "suggestedCategoryTitle": "Ethical Action",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "0301d",
+          "suggestedTitle": "Liturgies Shape Loves",
+          "suggestedContent": "Liturgies shape loves; repeated practices train desire long before explicit doctrine does",
+          "suggestedTags": [
+            "liturgies",
+            "habits",
+            "desire",
+            "ethics"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [
+            "0301a"
+          ],
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "Core idea on repeated practices/habits shaping desires fits existing Ethical Action leaf (see 0301a on ethics via small repeated actions). No better match among leaves; new category not needed.",
+          "confidence": 70
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T19",
+      "label": "URL only source",
+      "expectsSource": true,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 18767,
+        "result": {
+          "suggestedTitle": "Writing Clarifies Thoughts",
+          "suggestedContent": "writing clarifies half-formed thoughts",
+          "suggestedSource": {
+            "type": "Web",
+            "title": "",
+            "author": "Paul Graham",
+            "url": "https://paulgraham.com/vb.html",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 25269,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "9002",
+          "suggestedCategoryRange": "9002",
+          "suggestedCategoryTitle": "Clarity and Decision Making",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "9002f",
+          "suggestedTitle": "Writing Clarifies Thoughts",
+          "suggestedContent": "Writing clarifies half-formed thoughts.",
+          "suggestedTags": [
+            "writing",
+            "clarity",
+            "thinking"
+          ],
+          "suggestedStatus": "Evergreen",
+          "suggestedRelatedAddresses": [
+            "9002a",
+            "9002b"
+          ],
+          "suggestedSource": {
+            "type": "Web",
+            "title": "",
+            "author": "Paul Graham",
+            "url": "https://paulgraham.com/vb.html",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "Fits existing 9002 Clarity and Decision Making leaf category; writing is a tool for reducing cognitive drag and improving thought precision, directly relating to cards like 9002a on clarity saving energy. No need for new category under available ranges as this is a strong match. Content kept minimal per rules.",
+          "confidence": 75
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "T20",
+      "label": "Quote without source given",
+      "expectsSource": false,
+      "structure": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 13778,
+        "result": {
+          "suggestedTitle": "What Only Experience Teaches",
+          "suggestedContent": "A man who carries a cat by the tail learns something he can learn in no other way",
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          }
+        },
+        "issues": []
+      },
+      "filing": {
+        "ok": true,
+        "status": 200,
+        "durationMs": 33066,
+        "result": {
+          "mode": "existing_category",
+          "suggestedCategoryId": "0101",
+          "suggestedCategoryRange": "0101",
+          "suggestedCategoryTitle": "Wisdom",
+          "suggestedNewCategoryRange": "",
+          "suggestedNewCategoryTitle": "",
+          "suggestedCardAddress": "0101d",
+          "suggestedTitle": "What Only Experience Teaches",
+          "suggestedContent": "A man who carries a cat by the tail learns something he can learn in no other way",
+          "suggestedTags": [
+            "wisdom",
+            "experience",
+            "learning"
+          ],
+          "suggestedStatus": "Seed",
+          "suggestedRelatedAddresses": [
+            "0101a",
+            "0101b",
+            "0102c"
+          ],
+          "suggestedSource": {
+            "type": "Other",
+            "title": "",
+            "author": "",
+            "url": "",
+            "page": "",
+            "note": ""
+          },
+          "reasoning": "The quote addresses knowledge that can only arise from direct, often painful experience rather than theory or instruction. This aligns closely with the existing Wisdom leaf (0101), which already holds cards on practiced wisdom, judgment, and better questions. It is a better fit than Knowledge (0102) or any other leaf. No new category needed.",
+          "confidence": 70
+        },
+        "issues": []
+      }
+    }
+  ]
+}

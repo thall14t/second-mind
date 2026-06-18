@@ -49,11 +49,15 @@ import {
 } from './types';
 import { getTheme } from './theme';
 import {
-  buildLocalCaptureDraft,
   isReusableShelfTitle,
+  restrainStructuringToCapture,
 } from './utils/aiCataloguing';
 import { applyCaptureThinkingResult, createCaptureThinkingState } from './utils/aiCaptureStructuring';
-import { findSmallestContainingRange, resolveSuggestedNewCategoryRange } from './utils/aiFiling';
+import {
+  buildCardFormFieldsFromCaptureEnrichment,
+  findSmallestContainingRange,
+  resolveSuggestedNewCategoryRange,
+} from './utils/aiFiling';
 import {
   buildCategoryTree,
   cardBelongsToCategory,
@@ -74,14 +78,15 @@ import {
   validateCardAddress,
   validateCategoryAddress,
 } from './utils/antinet';
-import { parseTodosFromCapture } from './utils/todoParsing';
 import {
   buildCaptureClarificationLabel,
   buildCaptureClarificationViews,
   buildCaptureProcessingJobViews,
+  getInboxCaptureFilingSuggestion,
   getInboxCaptureStructuredDraft,
   pruneCaptureJobs,
 } from './utils/captureJobs';
+import { mergeTodoGenerationIntoExisting } from './utils/todoAppend';
 import { normalizeTodoDueDateInput } from './utils/todoDates';
 import {
   collectDescendantIds,
@@ -176,6 +181,8 @@ export default function App() {
   const [captureTitle, setCaptureTitle] = useState('');
   const [captureContent, setCaptureContent] = useState('');
   const [filingInboxCaptureId, setFilingInboxCaptureId] = useState<string | null>(null);
+  const pendingInboxAutoFilingRef = useRef(false);
+  const inboxAutoFilingAppliedRef = useRef<string | null>(null);
   const [clarificationModalJobId, setClarificationModalJobId] = useState<string | null>(null);
   const [dismissedClarificationJobIds, setDismissedClarificationJobIds] = useState<string[]>([]);
   const [resolvingClarificationJobIds, setResolvingClarificationJobIds] = useState<string[]>([]);
@@ -775,6 +782,7 @@ export default function App() {
     aiSuggestion,
     aiSuggestionStatus,
     setAiSuggestion,
+    setAiSuggestionStatus,
     isSuggestingFiling,
     cancelActiveFilingSuggestionWork,
     requestFilingSuggestion,
@@ -798,7 +806,7 @@ export default function App() {
     inboxCaptures,
   });
 
-  const { submitQuickCapture, resumeCaptureJob } = useCaptureRouting({
+  const { submitQuickCapture, resumeCaptureJob, requestTodoGeneration } = useCaptureRouting({
     getAiBaseEndpoint,
     captureJobsApi,
     getInboxCaptures: () => useDataStore.getState().inboxCaptures,
@@ -806,6 +814,10 @@ export default function App() {
     getTodos: () => useDataStore.getState().todos,
     saveTodos,
     getCardAddresses: () => useDataStore.getState().cards.map(card => card.address),
+    getAllCategories: () => allCategories,
+    getCategoryTree: () => categoryTree,
+    getCards: () => useDataStore.getState().cards,
+    getAiAssistEndpoint,
   });
 
   const {
@@ -813,6 +825,7 @@ export default function App() {
   } = useCaptureStructuring({
     categoryTree,
     allCategories,
+    getCards: () => useDataStore.getState().cards,
     getCaptureStructuringEndpoint,
     getAiAssistEndpoint,
     captureTimeoutMs: CAPTURE_STRUCTURING_TIMEOUT_MS,
@@ -868,30 +881,59 @@ export default function App() {
   const loadCaptureIntoCardForm = (
     capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>,
     inboxCaptureId: string | null = null,
-    structuredResult?: CaptureStructuringResult | null
+    structuredResult?: CaptureStructuringResult | null,
+    filingSuggestion: CardFilingSuggestion | null = null
   ) => {
     resetCardForm();
     setFilingInboxCaptureId(inboxCaptureId);
-    const normalizedResult = structuredResult
-      ? {
-          suggestedTitle: structuredResult.suggestedTitle?.trim() ?? '',
-          suggestedContent: structuredResult.suggestedContent?.trim() ?? '',
-          suggestedSource: normalizeCardSource(structuredResult.suggestedSource),
-        }
+    const restrainedResult = structuredResult
+      ? restrainStructuringToCapture(capture, structuredResult)
       : null;
-    const structuredSource = normalizedResult?.suggestedSource;
-    const nextTitle = normalizedResult?.suggestedTitle || capture.title;
-    const nextContent = normalizedResult?.suggestedContent || capture.content;
+    let nextCardAddress = '';
+    if (filingSuggestion?.suggestedCardAddress) {
+      nextCardAddress = filingSuggestion.suggestedCardAddress;
+    } else if (filingSuggestion?.mode === 'existing_category') {
+      const category = findCategoryByRange(normalizeAddress(filingSuggestion.suggestedCategoryRange));
+      if (category && !category.range.includes('-')) {
+        nextCardAddress = getNextCardAddress(category.range, cards);
+      }
+    }
 
-    setNewCardTitle(nextTitle);
-    setNewCardContent(nextContent);
-    setNewCardSourceType(structuredSource?.type ?? 'Other');
-    setNewCardSourceTitle(structuredSource?.title ?? '');
-    setNewCardSourceAuthor(structuredSource?.author ?? '');
-    setNewCardSourceUrl(structuredSource?.url ?? '');
-    setNewCardSourcePage(structuredSource?.page ?? '');
-    setNewCardSourceNote(structuredSource?.note ?? capture.sourceText ?? '');
+    const formFields = buildCardFormFieldsFromCaptureEnrichment({
+      capture,
+      enrichment: restrainedResult,
+      filingSuggestion,
+      cards,
+      cardAddress: nextCardAddress,
+    });
+
+    setNewCardTitle(formFields.title);
+    setNewCardContent(formFields.content);
+    setNewCardStatus(formFields.status);
+    setNewCardTagsText(formFields.tagsText);
+    setNewCardRelatedAddressesText(formFields.relatedAddressesText);
+    setNewCardSourceType(formFields.sourceType);
+    setNewCardSourceTitle(formFields.sourceTitle);
+    setNewCardSourceAuthor(formFields.sourceAuthor);
+    setNewCardSourceUrl(formFields.sourceUrl);
+    setNewCardSourcePage(formFields.sourcePage);
+    setNewCardSourceNote(formFields.sourceNote);
     setThinkingState(null);
+
+    if (filingSuggestion) {
+      setAiSuggestion(filingSuggestion);
+      setAiSuggestionStatus('ai_confirmed');
+      pendingInboxAutoFilingRef.current = false;
+      inboxAutoFilingAppliedRef.current = inboxCaptureId;
+
+      if (nextCardAddress) {
+        setNewCardAddress(nextCardAddress);
+      }
+    } else if (inboxCaptureId && restrainedResult) {
+      pendingInboxAutoFilingRef.current = true;
+      inboxAutoFilingAppliedRef.current = null;
+    }
+
     setCurrentScreen('newCard');
   };
 
@@ -1229,6 +1271,44 @@ export default function App() {
     setNewCardAddress(getNextCardAddress(category.range, cardsForAddressing));
     return true;
   };
+
+  useEffect(() => {
+    if (
+      currentScreen !== 'newCard'
+      || !filingInboxCaptureId
+      || !pendingInboxAutoFilingRef.current
+      || inboxAutoFilingAppliedRef.current === filingInboxCaptureId
+    ) {
+      return;
+    }
+
+    void requestFilingSuggestion();
+  }, [currentScreen, filingInboxCaptureId, requestFilingSuggestion]);
+
+  useEffect(() => {
+    if (
+      currentScreen !== 'newCard'
+      || !filingInboxCaptureId
+      || !pendingInboxAutoFilingRef.current
+      || !aiSuggestion
+      || inboxAutoFilingAppliedRef.current === filingInboxCaptureId
+    ) {
+      return;
+    }
+
+    void applySuggestedFiling(aiSuggestion).then(applied => {
+      if (!applied) {
+        return;
+      }
+
+      inboxAutoFilingAppliedRef.current = filingInboxCaptureId;
+      pendingInboxAutoFilingRef.current = false;
+    });
+  }, [
+    aiSuggestion,
+    currentScreen,
+    filingInboxCaptureId,
+  ]);
 
   const applyAllAiSuggestion = async () => {
     if (!aiSuggestion) {
@@ -1613,16 +1693,26 @@ export default function App() {
     loadCaptureIntoCardForm(
       capture,
       capture.id,
-      getInboxCaptureStructuredDraft(capture)
+      getInboxCaptureStructuredDraft(capture),
+      getInboxCaptureFilingSuggestion(capture) ?? null
     );
   };
 
   const fileInboxCaptureWithAi = (capture: InboxCapture) => {
-    const localDraft = buildLocalCaptureDraft(capture);
-    showThinkingScreen(createCaptureThinkingState(localDraft.preview), 'inbox');
+    const thinkingPreview = {
+      rawCapture: [capture.title, capture.content, capture.sourceText ?? ''].filter(Boolean).join('\n'),
+      title: capture.title,
+      body: capture.content,
+      sourceType: 'Other' as const,
+      sourceTitle: '',
+      author: '',
+      location: '',
+      corrections: [] as string[],
+    };
+    showThinkingScreen(createCaptureThinkingState(thinkingPreview), 'inbox');
     void (async () => {
       const thinkingStartedAt = Date.now();
-      const structuredResult = await requestCaptureStructuring(capture, localDraft);
+      const structuredResult = await requestCaptureStructuring(capture);
       if (!structuredResult) {
         finishThinkingScreen('inbox');
         return;
@@ -1635,20 +1725,30 @@ export default function App() {
   };
 
   const turnInboxCaptureIntoTodos = async (capture: InboxCapture) => {
-    const newTodos = parseTodosFromCapture(capture.title, capture.content);
-    if (newTodos.length === 0) {
-      Alert.alert('Nothing to Create', 'Could not parse any tasks from this capture.');
-      return;
-    }
-
     try {
-      await saveTodos(ensureTodoSortOrders([...newTodos, ...todos]));
+      const generation = await requestTodoGeneration(capture);
+      const mergedTodos = mergeTodoGenerationIntoExisting(generation, todos, capture);
+      const existingTodoIds = new Set(todos.map(todo => todo.id));
+      const newTodos = mergedTodos.filter(todo => !existingTodoIds.has(todo.id));
+      if (newTodos.length === 0) {
+        Alert.alert('Nothing to Create', 'Could not parse any tasks from this capture.');
+        return;
+      }
+
+      await saveTodos(ensureTodoSortOrders(mergedTodos));
       await saveInboxCaptures(inboxCaptures.filter(item => item.id !== capture.id));
 
+      const appendedToExisting = newTodos.every(todo => todo.parentId && todos.some(existing => existing.id === todo.parentId));
       const subCount = newTodos.filter(todo => todo.parentId).length;
-      const message = subCount > 0
-        ? `Created 1 parent task with ${subCount} sub-task${subCount === 1 ? '' : 's'}.`
-        : `Created ${newTodos.length} task${newTodos.length === 1 ? '' : 's'}.`;
+      const dueCount = newTodos.filter(todo => todo.dueDate).length;
+      let message = appendedToExisting && newTodos.length === 1
+        ? `Added "${newTodos[0].title}" to your list.`
+        : subCount > 0
+          ? `Created 1 parent task with ${subCount} sub-task${subCount === 1 ? '' : 's'}.`
+          : `Created ${newTodos.length} task${newTodos.length === 1 ? '' : 's'}.`;
+      if (dueCount > 0) {
+        message += ` ${dueCount} due date${dueCount === 1 ? '' : 's'} included.`;
+      }
 
       Alert.alert('Todos Created', message);
     } catch (e) {
@@ -1952,6 +2052,7 @@ export default function App() {
       aiSuggestionStatus={aiSuggestionStatus}
       isSuggestingFiling={isSuggestingFiling}
       aiThinkingState={thinkingState?.kind === 'filing' ? thinkingState : null}
+      filingFromInbox={Boolean(filingInboxCaptureId)}
       onAddressChange={setNewCardAddress}
       onTitleChange={setNewCardTitle}
       onContentChange={setNewCardContent}

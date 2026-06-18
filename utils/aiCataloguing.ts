@@ -1187,6 +1187,93 @@ const deriveLocalStatus = (draft: DraftShape, relatedAddresses: string[]) => {
   return 'Seed' as const;
 };
 
+export const buildMinimalCaptureStructuringDraft = (
+  capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>
+): CaptureStructuringResult => ({
+  suggestedTitle: cleanField(capture.title),
+  suggestedContent: normalizeWhitespace(capture.content),
+  suggestedSource: normalizeCardSource({
+    type: 'Other',
+    note: capture.sourceText?.trim() || undefined,
+  }),
+  suggestedTags: [],
+  suggestedStatus: 'Seed',
+  suggestedRelatedAddresses: [],
+  strategy: 'local',
+  confidenceBand: 'low',
+});
+
+export const captureHasExplicitSourceCues = (
+  capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>
+): boolean => {
+  const rawSourceText = normalizeWhitespace(capture.sourceText ?? '');
+  const rawContent = normalizeWhitespace(capture.content);
+  const combinedText = [rawContent, rawSourceText].filter(Boolean).join(' ').trim();
+  const url = extractUrl(combinedText);
+  const location = extractLocation(combinedText);
+  const canonicalBibleBook = findCanonicalBibleBook(combinedText);
+
+  return Boolean(
+    rawSourceText
+    || url
+    || location
+    || canonicalBibleBook
+    || /\b(?:book|article|essay|journal|paper|newsletter|blog|video|podcast|quote|quoted|citation|source)\b/i.test(combinedText)
+    || /\bby\b/i.test(combinedText)
+  );
+};
+
+const structuringSourceHasFill = (source?: CardSource | null | undefined): boolean => {
+  if (!source) {
+    return false;
+  }
+
+  const normalized = normalizeCardSource(source);
+  if (!normalized) {
+    return false;
+  }
+
+  return Boolean(
+    normalized.title?.trim()
+    || normalized.author?.trim()
+    || normalized.url?.trim()
+    || normalized.page?.trim()
+    || (normalized.type && normalized.type !== 'Other')
+  );
+};
+
+export const restrainStructuringToCapture = (
+  capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>,
+  result: CaptureStructuringResult
+): CaptureStructuringResult => {
+  const isAiProduced = result.strategy === 'ai' || result.strategy === 'merged';
+
+  if (isAiProduced) {
+    return {
+      ...result,
+      suggestedSource: normalizeCardSource(result.suggestedSource ?? {
+        type: 'Other',
+        note: capture.sourceText?.trim() || undefined,
+      }),
+    };
+  }
+
+  if (captureHasExplicitSourceCues(capture) || structuringSourceHasFill(result.suggestedSource)) {
+    return result;
+  }
+
+  return {
+    ...result,
+    suggestedSource: normalizeCardSource({
+      type: 'Other',
+      note: capture.sourceText?.trim() || undefined,
+    }),
+    corrections: (result.corrections ?? []).filter(
+      correction => !/\b(source|author|page|url|title corrected)\b/i.test(correction)
+    ),
+  };
+};
+
 export const buildLocalCaptureDraft = (
   capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>
 ): LocalCaptureBuildResult => {
@@ -1209,7 +1296,8 @@ export const buildLocalCaptureDraft = (
       .replace(/[“”"'`]/g, ' ')
   );
 
-  const leadSource = inferLeadSource(leadCandidate);
+  const hasSourceCue = captureHasExplicitSourceCues(capture);
+  const leadSource = hasSourceCue ? inferLeadSource(leadCandidate) : { title: '', author: '' };
   let sourceTitle = leadSource.title;
   let sourceAuthor = leadSource.author;
   const corrections: string[] = [];
@@ -1226,15 +1314,24 @@ export const buildLocalCaptureDraft = (
     corrections.push(`Location cleaned to ${location.replace(/[.]+$/, '')}`);
   }
 
-  const sourceType = inferSourceType(combinedText, url, sourceTitle, sourceAuthor, location);
-  const suggestedSource = normalizeCardSource({
-    type: sourceType,
-    title: sourceTitle,
-    author: sourceAuthor,
-    url,
-    page: cleanField(location.replace(/[.]+$/, '')),
-    note: rawSourceText || undefined,
-  });
+  const sourceType = hasSourceCue
+    ? inferSourceType(combinedText, url, sourceTitle, sourceAuthor, location)
+    : 'Other';
+  const suggestedSource = normalizeCardSource(
+    hasSourceCue
+      ? {
+          type: sourceType,
+          title: sourceTitle,
+          author: sourceAuthor,
+          url,
+          page: cleanField(location.replace(/[.]+$/, '')),
+          note: rawSourceText || undefined,
+        }
+      : {
+          type: 'Other',
+          note: rawSourceText || undefined,
+        }
+  );
 
   const result: CaptureStructuringResult = {
     suggestedTitle: rawTitle,
@@ -1245,15 +1342,6 @@ export const buildLocalCaptureDraft = (
     confidenceBand: deriveConfidenceBand(rawTitle || suggestedSource || bodyWasCleaned ? 0.7 : 0.45),
     strategy: 'local',
   };
-
-  const hasSourceCue = Boolean(
-    rawSourceText ||
-    url ||
-    location ||
-    canonicalBibleBook ||
-    /\b(?:book|article|essay|journal|paper|newsletter|blog|video|podcast|quote|quoted|citation|source)\b/i.test(combinedText) ||
-    /\bby\b/i.test(leadCandidate)
-  );
 
   const shouldUseAi = Boolean(
     !rawTitle ||
@@ -1281,18 +1369,29 @@ export const buildLocalCaptureDraft = (
 
 export const mergeCaptureStructuring = (
   localResult: CaptureStructuringResult,
-  aiResult?: Partial<CaptureStructuringResult> | null
+  aiResult?: Partial<CaptureStructuringResult> | null,
+  capture?: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>
 ): CaptureStructuringResult => {
-  const suggestedSource = normalizeCardSource({
-    type: aiResult?.suggestedSource?.type ?? localResult.suggestedSource?.type ?? 'Other',
-    title: aiResult?.suggestedSource?.title || localResult.suggestedSource?.title,
-    author: aiResult?.suggestedSource?.author || localResult.suggestedSource?.author,
-    url: aiResult?.suggestedSource?.url || localResult.suggestedSource?.url,
-    page: aiResult?.suggestedSource?.page || localResult.suggestedSource?.page,
-    note: aiResult?.suggestedSource?.note || localResult.suggestedSource?.note,
-  });
+  const aiSource = aiResult?.suggestedSource ?? undefined;
+  const useAiSource = Boolean(aiResult && structuringSourceHasFill(aiSource));
+  const hasSourceCue = capture ? captureHasExplicitSourceCues(capture) : true;
+  const suggestedSource = normalizeCardSource(
+    useAiSource || hasSourceCue
+      ? {
+          type: aiSource?.type ?? localResult.suggestedSource?.type ?? 'Other',
+          title: aiSource?.title || localResult.suggestedSource?.title,
+          author: aiSource?.author || localResult.suggestedSource?.author,
+          url: aiSource?.url || localResult.suggestedSource?.url,
+          page: aiSource?.page || localResult.suggestedSource?.page,
+          note: aiSource?.note || localResult.suggestedSource?.note || capture?.sourceText?.trim(),
+        }
+      : {
+          type: 'Other',
+          note: capture?.sourceText?.trim() || localResult.suggestedSource?.note,
+        }
+  );
 
-  return {
+  const merged: CaptureStructuringResult = {
     suggestedTitle: cleanField(aiResult?.suggestedTitle ?? '') || localResult.suggestedTitle,
     suggestedContent: cleanField(aiResult?.suggestedContent ?? '') || localResult.suggestedContent,
     suggestedSource,
@@ -1301,11 +1400,25 @@ export const mergeCaptureStructuring = (
     confidenceBand: deriveConfidenceBand(Math.max(localResult.confidence ?? 0, aiResult?.confidence ?? 0)),
     strategy: aiResult ? 'merged' : localResult.strategy ?? 'local',
   };
+
+  return capture ? restrainStructuringToCapture(capture, merged) : merged;
+};
+
+export const buildExistingCardSummariesForEnrichment = (
+  cards: Card[],
+  limit = 50
+): Array<{ address: string; title: string; tags?: string[] }> => {
+  return cards.slice(0, limit).map(card => ({
+    address: normalizeAddress(card.address),
+    title: card.title.trim(),
+    tags: card.tags?.slice(0, 4),
+  }));
 };
 
 export const buildCapturePayload = (
   capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>,
-  localDraft: CaptureStructuringResult
+  localDraft: CaptureStructuringResult,
+  context?: CaptureStructuringPayload['context']
 ): CaptureStructuringPayload => ({
   capture: {
     title: capture.title,
@@ -1313,6 +1426,7 @@ export const buildCapturePayload = (
     sourceText: capture.sourceText,
   },
   localDraft,
+  context,
 });
 
 const scoreFunctionTitleMatch = (noteFunction: NoteFunction, title: string) => {

@@ -12,7 +12,9 @@ function compileModules() {
 
   const args = [
     path.join(appRoot, 'utils', 'todoTree.ts'),
+    path.join(appRoot, 'utils', 'todoDates.ts'),
     path.join(appRoot, 'utils', 'todoParsing.ts'),
+    path.join(appRoot, 'utils', 'todoAppend.ts'),
     path.join(appRoot, 'types.ts'),
     '--module',
     'commonjs',
@@ -49,7 +51,23 @@ function loadModules() {
     todoHasChildren,
     collectDescendantIds,
   } = require(path.join(buildDir, 'utils', 'todoTree.js'));
-  return { parseTodosFromCapture, flattenTodoTree, countSubtreeTodos, todoHasChildren, collectDescendantIds };
+  const {
+    parseAppendToListIntent,
+    findTodoListParentByTitle,
+    mergeTodoGenerationIntoExisting,
+    buildLocalAppendTodoGeneration,
+  } = require(path.join(buildDir, 'utils', 'todoAppend.js'));
+  return {
+    parseTodosFromCapture,
+    flattenTodoTree,
+    countSubtreeTodos,
+    todoHasChildren,
+    collectDescendantIds,
+    parseAppendToListIntent,
+    findTodoListParentByTitle,
+    mergeTodoGenerationIntoExisting,
+    buildLocalAppendTodoGeneration,
+  };
 }
 
 function makeTodo(id, title, overrides = {}) {
@@ -71,6 +89,10 @@ function runTests() {
     countSubtreeTodos,
     todoHasChildren,
     collectDescendantIds,
+    parseAppendToListIntent,
+    findTodoListParentByTitle,
+    mergeTodoGenerationIntoExisting,
+    buildLocalAppendTodoGeneration,
   } = loadModules();
 
   const single = parseTodosFromCapture('Errands', 'Buy milk');
@@ -82,6 +104,30 @@ function runTests() {
   assert.strictEqual(nested.length, 4);
   assert.strictEqual(nested[0].title, 'Project');
   assert.strictEqual(nested.filter(todo => todo.parentId).length, 3);
+
+  const houseChores = parseTodosFromCapture(
+    'House chores',
+    'vacuum living room\ndo dishes\nfold laundry'
+  );
+  assert.strictEqual(houseChores.length, 4);
+  assert.strictEqual(houseChores[0].title, 'House chores');
+  assert.deepStrictEqual(
+    houseChores.filter(todo => todo.parentId).map(todo => todo.title),
+    ['Vacuum living room', 'Do dishes', 'Fold laundry']
+  );
+
+  const jeep = parseTodosFromCapture(
+    '',
+    'I need to fix jeep by this sunday including oil change and tire rotation',
+    new Date('2026-06-18T12:00:00')
+  );
+  assert.strictEqual(jeep.length, 3);
+  assert.strictEqual(jeep[0].title, 'Fix jeep');
+  assert.strictEqual(jeep[0].dueDate, '2026-06-21');
+  assert.deepStrictEqual(
+    jeep.filter(todo => todo.parentId).map(todo => todo.title),
+    ['Oil change', 'Tire rotation']
+  );
 
   const todos = [
     makeTodo('a', 'Parent', { sortOrder: 0 }),
@@ -103,6 +149,43 @@ function runTests() {
   assert.strictEqual(descendants.has('a'), true);
   assert.strictEqual(descendants.has('b'), true);
   assert.strictEqual(descendants.has('c'), false);
+
+  const appendIntent = parseAppendToListIntent('', 'Add wipe counters to house chores');
+  assert.deepStrictEqual(appendIntent, {
+    taskTitle: 'wipe counters',
+    listReference: 'house chores',
+  });
+
+  const genericListIntent = parseAppendToListIntent('', 'add mop kitchen to that list');
+  assert.deepStrictEqual(genericListIntent, {
+    taskTitle: 'mop kitchen',
+    useRecentList: true,
+  });
+
+  const houseChoresTodos = [
+    makeTodo('house-root', 'House chores', { sortOrder: 0, createdAt: '2026-06-18T10:00:00.000Z' }),
+    makeTodo('house-child-1', 'Vacuum living room', { parentId: 'house-root', sortOrder: 0, createdAt: '2026-06-18T10:00:00.000Z' }),
+    makeTodo('house-child-2', 'Do dishes', { parentId: 'house-root', sortOrder: 1, createdAt: '2026-06-18T10:00:00.000Z' }),
+  ];
+  const houseParent = findTodoListParentByTitle('house chores', houseChoresTodos);
+  assert.strictEqual(houseParent?.id, 'house-root');
+
+  const localAppend = buildLocalAppendTodoGeneration(
+    { title: '', content: 'Add wipe counters to house chores' },
+    houseChoresTodos
+  );
+  assert.strictEqual(localAppend?.todos.length, 1);
+  assert.strictEqual(localAppend?.todos[0].parentClientId, 'house-root');
+  assert.strictEqual(localAppend?.todos[0].title, 'Wipe counters');
+
+  const merged = mergeTodoGenerationIntoExisting(
+    { todos: [], strategy: 'ai' },
+    houseChoresTodos,
+    { title: '', content: 'Add wipe counters to house chores' }
+  );
+  assert.strictEqual(merged.length, 4);
+  const appended = merged.find(todo => todo.title === 'Wipe counters');
+  assert.strictEqual(appended?.parentId, 'house-root');
 
   console.log('All todo utils tests passed.');
 }

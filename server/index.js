@@ -105,7 +105,16 @@ const coreSuggestionSchema = {
 const captureStructuringSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suggestedTitle', 'suggestedContent', 'suggestedSource', 'corrections', 'confidence'],
+  required: [
+    'suggestedTitle',
+    'suggestedContent',
+    'suggestedSource',
+    'suggestedTags',
+    'suggestedStatus',
+    'suggestedRelatedAddresses',
+    'corrections',
+    'confidence',
+  ],
   properties: {
     suggestedTitle: { type: 'string' },
     suggestedContent: { type: 'string' },
@@ -122,6 +131,9 @@ const captureStructuringSchema = {
         note: { type: 'string' },
       },
     },
+    suggestedTags: { type: 'array', items: { type: 'string' } },
+    suggestedStatus: { type: 'string', enum: ['Seed', 'Growing', 'Evergreen'] },
+    suggestedRelatedAddresses: { type: 'array', items: { type: 'string' } },
     corrections: { type: 'array', items: { type: 'string' } },
     confidence: { type: 'number' },
   },
@@ -393,9 +405,10 @@ async function requestCoreFilingSuggestionWithRetry(context, attempt) {
               type: 'input_text',
               text: [
                 'You are the intelligent filing assistant for Second Mind, a personal Antinet-style knowledge system.',
+                'You are the authoritative cataloguing step. Your filing decision is the primary recommendation.',
                 'Your only job is to suggest the best place to file a new card using only the taxonomy provided in this request.',
                 'Do not assume any fixed meaning for category numbers beyond the titles and hierarchy shown here.',
-                'The provided taxonomy includes all top-level ranges, their immediate children, and a selected set of real filing shelves from the user\'s live category tree.',
+                'The provided taxonomy is the user\'s live Antinet category tree. Search it carefully before suggesting a new shelf.',
                 'Use note function as well as subject. Consider whether the draft is a quote, source note, idea seed, project note, practical method, observation, analogy, metaphor, doctrine, or argument.',
                 'When note function conflicts with a literal noun, prefer the note function if the evidence is clear.',
                 'When the draft explicitly frames itself as a book idea, chapter idea, story idea, essay idea, article idea, sermon idea, or talk idea, prefer authored-work, literary, creative, or idea-oriented branches and shelves when such options exist.',
@@ -578,18 +591,19 @@ async function requestCaptureStructuring(body) {
               type: 'input_text',
               text: [
                 'You structure rough Second Mind captures into clean card fields.',
-                'Use localDraft as a first pass: keep what is correct, fix only what is clearly wrong, and do not duplicate source metadata inside suggestedContent.',
+                'You are the authoritative structuring and research step. Read capture text directly and produce the final card fields.',
+                'localDraft is a raw pass-through only; do not treat it as the answer.',
+                'Actively research the capture: recognize quotations, paraphrases, lyrics, poems, speeches, articles, books, films, and other attributable works using your knowledge.',
+                'When you can identify a source, fill suggestedSource with the work, author, medium, and best locator you can support.',
+                'A capture may omit attribution — infer it when the content is recognizable and you are reasonably confident.',
+                'Leave a source field blank only when you cannot support it. Do not invent precise page numbers, verse locators, or URLs without basis.',
+                'Do not duplicate source metadata inside suggestedContent.',
                 'Preserve the actual note or quotation in suggestedContent.',
-                'Move source clues into suggestedSource only when they are explicit or strongly implied.',
-                'If the capture has no real source cues, keep suggestedSource.type as Other and leave source fields blank.',
-                'Correct obvious source typos only at high confidence.',
-                'When a canonical source title is clear, prefer the canonical title over the rough capture wording.',
-                'For scripture, prefer the specific biblical book as the source title and use chapter:verse as the location when high confidence.',
-                'Do not invent authors, page numbers, sections, timestamps, or verse references.',
                 'suggestedTitle should be short, conceptual, and useful as a card handle.',
-                'Prefer noun phrases, themes, principles, identities, tensions, or doctrines over sentence-like summaries.',
-                'Leave suggestedTitle blank if a good conceptual handle is not clear.',
-                'corrections should list only meaningful normalizations you actually made, such as a corrected book title or cleaned location.',
+                'suggestedTags should be 0 to 5 short topical tags only when clearly supported by the capture.',
+                'suggestedStatus should reflect note maturity: Seed for brief seeds, Growing for developed notes, Evergreen for durable principles.',
+                'When context.existingCards is provided, you may set suggestedRelatedAddresses to up to 3 semantically related card addresses from that list. Prefer topical neighbors, not random matches.',
+                'corrections should list meaningful normalizations or research you actually performed.',
                 'Return only the schema fields.',
               ].join(' '),
             },
@@ -615,7 +629,7 @@ async function requestCaptureStructuring(body) {
           schema: captureStructuringSchema,
         },
       },
-      max_output_tokens: 180,
+      max_output_tokens: 640,
     }),
   });
 
@@ -1211,6 +1225,15 @@ function buildFullSuggestionFromCore(coreSuggestion, draft) {
 function prepareSlimCaptureStructuringContext(body) {
   const capture = body?.capture ?? {};
   const localDraft = body?.localDraft ?? {};
+  const context = body?.context ?? {};
+  const existingCards = (Array.isArray(context.existingCards) ? context.existingCards : [])
+    .slice(0, 50)
+    .map((card, index) => ({
+      address: String(card?.address || '').trim(),
+      title: String(card?.title || '').trim(),
+      tags: Array.isArray(card?.tags) ? card.tags.map(String).slice(0, 4) : [],
+    }))
+    .filter(card => card.address && card.title);
 
   return {
     task: 'Turn this rough capture into clean card fields while preserving the note body and moving source details out of the body.',
@@ -1233,13 +1256,21 @@ function prepareSlimCaptureStructuringContext(body) {
       corrections: Array.isArray(localDraft.corrections) ? localDraft.corrections.slice(0, 4).map(String) : [],
       confidence: Number(localDraft.confidence || 0),
     },
+    context: {
+      existingCards,
+    },
     outputRules: {
+      authority: 'You are the authoritative structuring and research step. Build the final card draft from capture text.',
       noteBody: 'suggestedContent should contain only the note, quote, or idea itself.',
-      sourceFields: 'Use suggestedSource only for explicit or high-confidence source data.',
-      location: 'Use suggestedSource.page for the best precise locator available, but leave it blank if you are not highly confident.',
+      research: 'Recognize attributable content even when the capture omits citation. Fill source fields from your knowledge when reasonably confident.',
+      sourceFields: 'Populate suggestedSource when you can identify the work or medium. Blank fields mean unknown, not skipped by default.',
+      location: 'Use suggestedSource.page for the best locator you can support. Leave it blank when uncertain.',
       title: 'suggestedTitle should be a short conceptual handle. Leave it blank if a good handle is not clear.',
-      corrections: 'Only list real normalizations you actually made.',
-      restraint: 'Do not invent missing source data.',
+      tags: 'Use suggestedTags sparingly for clear topical hooks only.',
+      status: 'Choose suggestedStatus from Seed, Growing, or Evergreen based on note depth.',
+      relatedAddresses: 'When context.existingCards is provided, set suggestedRelatedAddresses to up to 3 semantically related addresses from that list. Use only addresses present in context.existingCards.',
+      corrections: 'List normalizations and research you actually performed, including inferred attribution.',
+      restraint: 'Do not invent precise locators or URLs without basis. Reasonable attribution is encouraged.',
     },
   };
 }

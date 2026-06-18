@@ -9,6 +9,7 @@
     "test:todo-utils": "node scripts/run-todo-utils-tests.js",
     "test:capture-jobs": "node scripts/run-capture-jobs-tests.js",
     "test:capture-routing-server": "node scripts/run-capture-routing-server-tests.js",
+    "test:capture-routing-stress": "node scripts/run-capture-routing-stress-test.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"

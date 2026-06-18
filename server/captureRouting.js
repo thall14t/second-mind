@@ -94,14 +94,25 @@ function prepareClassifyCaptureContext(body) {
       ],
       todoSignals: [
         'multiple bullet or numbered action lines',
+        'multiple plain action lines without bullets, such as vacuum, do dishes, fold laundry',
+        'comma-separated errand lists on one line',
+        'titles or framing such as chores, house chores, errands, checklist, or cleaning list',
         'imperative task language such as buy, call, finish, schedule',
+        'need to, have to, or must with an action and optional deadline',
+        'including subtasks such as oil change and tire rotation',
         'explicit list framing such as todo, tasks, errands, or before Friday',
+        'append phrasing such as add wipe counters to house chores or add X to that list',
+      ],
+      cardSignalsExtra: [
+        'short spiritual or aphoristic declarations such as our lord is love',
+        'conceptual noun-phrase claims without actionable verbs',
       ],
       ambiguousCases: [
         'single short line that could be either a card title or one-item todo',
         'mixed paragraph plus a few bullets without clear dominance',
       ],
-      clarification: 'Set needsClarification true when confidenceBand would be low or the capture is genuinely ambiguous.',
+      clarification: 'Set needsClarification true ONLY when you truly cannot decide between card and todo. Low confidence alone is not enough.',
+      authority: 'You are the authoritative routing step. Read the capture text directly. localSignals are weak hints only.',
       output: 'Return route card or todo. Do not structure fields or invent tasks beyond what the capture implies.',
     },
   };
@@ -117,6 +128,16 @@ function prepareGenerateTodosContext(body) {
       .filter(Boolean)
       .slice(0, 50)
   );
+  const existingTodos = (Array.isArray(context.existingTodos) ? context.existingTodos : [])
+    .slice(0, 80)
+    .map((todo, index) => ({
+      clientId: String(todo?.clientId || todo?.id || `existing-${index}`),
+      title: String(todo?.title || '').trim(),
+      parentClientId: String(todo?.parentClientId || todo?.parentId || '').trim() || null,
+      sortOrder: Number.isFinite(Number(todo?.sortOrder)) ? Number(todo.sortOrder) : index,
+      completed: Boolean(todo?.completed),
+    }))
+    .filter(todo => todo.title);
 
   return {
     task: 'Turn this rough capture into a structured nestable todo tree.',
@@ -141,14 +162,17 @@ function prepareGenerateTodosContext(body) {
     },
     context: {
       existingCardAddresses: Array.from(allowedAddresses),
+      existingTodos,
     },
     outputRules: {
+      authority: 'You are the authoritative todo generation step. Build the todo tree directly from capture text. localDraft may be empty.',
       nesting: 'Preserve parent and child structure using clientId and parentClientId. Use an empty parentClientId for root todos.',
+      appendToExistingList: 'When the capture adds one or more tasks to an existing list (e.g. "add wipe counters to house chores" or "add X to that list"), return ONLY the new todos. Set each new todo parentClientId to the matching existing parent clientId from context.existingTodos. Do not recreate the parent list or duplicate existing children.',
       dueDates: 'Infer dueDate only when explicit or strongly implied. Use YYYY-MM-DD.',
       relatedAddresses: 'Set relatedAddresses only when the capture clearly references one of the provided existing card addresses.',
       restraint: 'Improve titles and grouping, but do not invent tasks the capture does not imply.',
       flattening: 'Do not flatten a real list into one todo unless the capture truly has one item.',
-      clientIds: 'Return stable clientId values. Reuse localDraft clientIds when they still fit.',
+      clientIds: 'Return stable clientId values for every todo.',
     },
   };
 }
@@ -168,25 +192,42 @@ function buildUserOverrideClassification(userOverride) {
   };
 }
 
+const CLASSIFICATION_CLARIFICATION_MAX_CONFIDENCE = 0.42;
+
 function normalizeClassificationResult(raw) {
   const route = raw?.route === 'todo' ? 'todo' : 'card';
   const confidence = Math.max(0, Math.min(1, Number(raw?.confidence ?? 0)));
   const confidenceBand = toConfidenceBand(confidence);
-  const needsClarification = Boolean(raw?.needsClarification);
+  const alternatives = (Array.isArray(raw?.alternatives) ? raw.alternatives : [])
+    .map(alternative => ({
+      route: alternative?.route === 'todo' ? 'todo' : 'card',
+      confidence: Math.max(0, Math.min(1, Number(alternative?.confidence ?? 0))),
+      reasoning: String(alternative?.reasoning || '').trim(),
+    }))
+    .filter(alternative => alternative.reasoning)
+    .slice(0, 2);
+
+  let needsClarification = Boolean(raw?.needsClarification);
+
+  if (needsClarification && confidence >= CLASSIFICATION_CLARIFICATION_MAX_CONFIDENCE) {
+    needsClarification = false;
+  }
+
+  if (needsClarification && confidence >= 0.3) {
+    const hasCloseAlternative = alternatives.some(
+      alternative => Math.abs(alternative.confidence - confidence) <= 0.12
+    );
+    if (!hasCloseAlternative) {
+      needsClarification = false;
+    }
+  }
 
   return {
     route,
     confidence,
     confidenceBand,
     reasoning: String(raw?.reasoning || '').trim() || 'No reasoning provided.',
-    alternatives: (Array.isArray(raw?.alternatives) ? raw.alternatives : [])
-      .map(alternative => ({
-        route: alternative?.route === 'todo' ? 'todo' : 'card',
-        confidence: Math.max(0, Math.min(1, Number(alternative?.confidence ?? 0))),
-        reasoning: String(alternative?.reasoning || '').trim(),
-      }))
-      .filter(alternative => alternative.reasoning)
-      .slice(0, 2),
+    alternatives,
     needsClarification,
     clarificationPrompt: needsClarification
       ? String(raw?.clarificationPrompt || '').trim() || 'Is this a note for your library or a task list?'
@@ -194,8 +235,18 @@ function normalizeClassificationResult(raw) {
   };
 }
 
-function normalizeEnrichResult(raw) {
+function normalizeEnrichResult(raw, body) {
   const confidence = Math.max(0, Math.min(1, Number(raw?.confidence ?? 0)));
+  const allowedAddresses = new Set(
+    (Array.isArray(body?.context?.existingCards) ? body.context.existingCards : [])
+      .map(card => String(card?.address || '').trim())
+      .filter(Boolean)
+  );
+
+  const relatedAddresses = (Array.isArray(raw?.suggestedRelatedAddresses) ? raw.suggestedRelatedAddresses : [])
+    .map(address => String(address || '').trim())
+    .filter(address => allowedAddresses.size === 0 || allowedAddresses.has(address))
+    .slice(0, 8);
 
   return {
     suggestedTitle: String(raw?.suggestedTitle || ''),
@@ -210,6 +261,15 @@ function normalizeEnrichResult(raw) {
       page: String(raw?.suggestedSource?.page || ''),
       note: String(raw?.suggestedSource?.note || ''),
     },
+    suggestedTags: (Array.isArray(raw?.suggestedTags) ? raw.suggestedTags : [])
+      .map(String)
+      .map(tag => tag.trim())
+      .filter(Boolean)
+      .slice(0, 8),
+    suggestedStatus: ['Seed', 'Growing', 'Evergreen'].includes(raw?.suggestedStatus)
+      ? raw.suggestedStatus
+      : 'Seed',
+    suggestedRelatedAddresses: relatedAddresses,
     corrections: Array.isArray(raw?.corrections)
       ? raw.corrections.map(String).filter(Boolean).slice(0, 6)
       : [],
@@ -286,8 +346,11 @@ async function requestClassifyCapture(body, deps) {
                 'You classify rough Second Mind captures as either card or todo routes.',
                 'Card means a durable library note, quote, idea, or source-backed thought.',
                 'Todo means actionable tasks, errands, checklists, or project steps.',
-                'Use localSignals as weak hints only; the capture text is primary.',
-                'Return needsClarification true when the capture is genuinely ambiguous or your confidence would be low.',
+                'You are the authoritative routing step. Read the capture text directly.',
+                'Use localSignals as weak hints only; never let them override clear capture text.',
+                'Set needsClarification true ONLY when you truly cannot decide between card and todo.',
+                'If you can lean toward either route, return that route with needsClarification false even when confidence is moderate.',
+                'Low confidence alone is NOT a reason to ask for clarification.',
                 'Do not structure card fields or generate final todos in this step.',
                 'Return only the schema fields.',
               ].join(' '),
@@ -339,7 +402,7 @@ async function requestClassifyCapture(body, deps) {
 
 async function requestEnrichCardCapture(body, requestCaptureStructuring) {
   const raw = await requestCaptureStructuring(body);
-  return normalizeEnrichResult(raw);
+  return normalizeEnrichResult(raw, body);
 }
 
 async function requestGenerateTodos(body, deps) {
@@ -362,7 +425,8 @@ async function requestGenerateTodos(body, deps) {
               type: 'input_text',
               text: [
                 'You generate structured nestable todos from rough Second Mind captures.',
-                'Use localDraft as a first pass: keep the structure when it is reasonable and improve titles, nesting, due dates, and card links.',
+                'You are the authoritative structuring step. Build the todo tree directly from capture text.',
+                'localDraft may be empty; do not depend on it. Improve titles, nesting, due dates, and card links yourself.',
                 'Return clientId and parentClientId for every todo. Use an empty parentClientId for root todos.',
                 'Only set relatedAddresses when the capture clearly references one of the provided existing card addresses.',
                 'Infer dueDate only when explicit or strongly implied, using YYYY-MM-DD.',

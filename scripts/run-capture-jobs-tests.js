@@ -50,7 +50,9 @@ function loadModules() {
     pruneCaptureJobs,
     upsertCaptureJob,
     applyEnrichmentToCapture,
+    buildAiUnavailableClassificationFallback,
     buildLocalClassificationFallback,
+    finalizeCaptureClassification,
     inferObviousCaptureRoute,
     buildUserOverrideClassification,
     buildCaptureProcessingJobViews,
@@ -58,6 +60,7 @@ function loadModules() {
     getCaptureJobStatusLabel,
     getInboxCaptureStructuredDraft,
     inboxCaptureIsReadyToFile,
+    captureEnrichmentHasMeaningfulWork,
     getInboxCaptureDisplayStatus,
     getInboxCaptureDisplayTitle,
     getInboxCaptureStatusLabel,
@@ -67,7 +70,9 @@ function loadModules() {
 
   return {
     buildClassificationLocalSignals,
+    buildAiUnavailableClassificationFallback,
     buildLocalClassificationFallback,
+    finalizeCaptureClassification,
     inferObviousCaptureRoute,
     buildUserOverrideClassification,
     buildCaptureProcessingJobViews,
@@ -75,6 +80,7 @@ function loadModules() {
     getCaptureJobStatusLabel,
     getInboxCaptureStructuredDraft,
     inboxCaptureIsReadyToFile,
+    captureEnrichmentHasMeaningfulWork,
     getInboxCaptureDisplayStatus,
     getInboxCaptureDisplayTitle,
     getInboxCaptureStatusLabel,
@@ -101,7 +107,9 @@ function runTests() {
     pruneCaptureJobs,
     upsertCaptureJob,
     applyEnrichmentToCapture,
+    buildAiUnavailableClassificationFallback,
     buildLocalClassificationFallback,
+    finalizeCaptureClassification,
     inferObviousCaptureRoute,
     buildUserOverrideClassification,
     buildCaptureProcessingJobViews,
@@ -109,6 +117,7 @@ function runTests() {
     getCaptureJobStatusLabel,
     getInboxCaptureStructuredDraft,
     inboxCaptureIsReadyToFile,
+    captureEnrichmentHasMeaningfulWork,
     getInboxCaptureDisplayStatus,
     getInboxCaptureDisplayTitle,
     getInboxCaptureStatusLabel,
@@ -171,6 +180,52 @@ function runTests() {
   );
   assert.strictEqual(callTask?.route, 'todo');
 
+  const aphorismCard = inferObviousCaptureRoute(
+    '',
+    'our lord is love',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
+  assert.strictEqual(aphorismCard?.route, 'card');
+  assert.strictEqual(aphorismCard?.needsClarification, false);
+
+  const jeepTodo = inferObviousCaptureRoute(
+    '',
+    'I need to fix jeep by this sunday including oil change and tire rotation',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
+  assert.strictEqual(jeepTodo?.route, 'todo');
+  assert.strictEqual(jeepTodo?.needsClarification, false);
+
+  const houseChores = inferObviousCaptureRoute(
+    'House chores',
+    'vacuum living room\ndo dishes\nfold laundry\ntake out trash',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
+  assert.strictEqual(houseChores?.route, 'todo');
+  assert.strictEqual(houseChores?.needsClarification, false);
+
+  const plainChoreLines = inferObviousCaptureRoute(
+    '',
+    'mop kitchen\nwater plants\nempty dishwasher',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
+  assert.strictEqual(plainChoreLines?.route, 'todo');
+
+  const commaErrands = inferObviousCaptureRoute(
+    '',
+    'pick up prescription, grab dog food, mail package at post office',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
+  assert.strictEqual(commaErrands?.route, 'todo');
+
+  const appendToList = inferObviousCaptureRoute(
+    '',
+    'Add wipe counters to house chores',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
+  assert.strictEqual(appendToList?.route, 'todo');
+  assert.strictEqual(appendToList?.needsClarification, false);
+
   const override = buildUserOverrideClassification('todo');
   assert.strictEqual(override.needsClarification, false);
 
@@ -180,6 +235,34 @@ function runTests() {
     { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
   );
   assert.strictEqual(clarifyFallback.needsClarification, true);
+
+  const aiUnavailable = buildAiUnavailableClassificationFallback(
+    'maybe',
+    'something vague',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
+  assert.strictEqual(aiUnavailable.needsClarification, false);
+
+  const suppressedClarification = finalizeCaptureClassification({
+    route: 'card',
+    confidence: 0.58,
+    confidenceBand: 'medium',
+    reasoning: 'Leans card but cautious.',
+    needsClarification: true,
+  });
+  assert.strictEqual(suppressedClarification.needsClarification, false);
+
+  const keptClarification = finalizeCaptureClassification({
+    route: 'card',
+    confidence: 0.28,
+    confidenceBand: 'low',
+    reasoning: 'Could be either.',
+    needsClarification: true,
+    alternatives: [
+      { route: 'todo', confidence: 0.26, reasoning: 'Could also be errands.' },
+    ],
+  });
+  assert.strictEqual(keptClarification.needsClarification, true);
 
   assert.strictEqual(buildCaptureProcessingLabel(2), 'Processing 2 captures');
   assert.strictEqual(getCaptureJobStatusLabel('classifying'), 'Classifying');
@@ -204,6 +287,28 @@ function runTests() {
   assert.strictEqual(getInboxCaptureStructuredDraft(enriched)?.suggestedTitle, 'Title');
   assert.strictEqual(inboxCaptureIsReadyToFile(enriched), true);
   assert.strictEqual(inboxCaptureIsReadyToFile({ id: 'raw', title: 'T', content: 'Body', createdAt: '2026-01-01T00:00:00.000Z' }), false);
+
+  assert.strictEqual(
+    captureEnrichmentHasMeaningfulWork(
+      { title: 'T', content: 'Body' },
+      { suggestedTitle: 'T', suggestedContent: 'Body', strategy: 'local' }
+    ),
+    false
+  );
+  assert.strictEqual(
+    captureEnrichmentHasMeaningfulWork(
+      { title: 'T', content: 'Body' },
+      { suggestedTitle: 'Title', suggestedContent: 'Body', strategy: 'local' }
+    ),
+    true
+  );
+  assert.strictEqual(
+    captureEnrichmentHasMeaningfulWork(
+      { title: 'Quote', content: 'our lord is love' },
+      { suggestedTitle: 'Quote', suggestedContent: 'our lord is love', strategy: 'ai' }
+    ),
+    true
+  );
   assert.strictEqual(getInboxCaptureDisplayTitle(enriched), 'Title');
   assert.strictEqual(getInboxCaptureDisplayStatus(enriched), 'ready_to_file');
   assert.strictEqual(getInboxCaptureStatusLabel('ready_to_file'), 'Ready to file');

@@ -5,6 +5,7 @@ import {
   CaptureJobStatus,
   CaptureRoute,
   CaptureStructuringResult,
+  CardFilingSuggestion,
   InboxCapture,
   InboxCaptureEnrichment,
   Todo,
@@ -15,9 +16,19 @@ import {
 const BULLET_LINE_PATTERN = /^([-*•]|\d+[.)])\s+/;
 const SOURCE_CUE_PATTERN = /(https?:\/\/|www\.|page\s+\d|chapter\s+\d|—\s*[A-Z]|"\s*—|said\s+|according\s+to)/i;
 const QUOTE_PATTERN = /^["'“‘].+["'”’]$/;
-const TASK_VERB_PATTERN = /^(call|email|e-mail|text|buy|pick up|schedule|finish|send|pay|return|get|grab|water|mail|submit|review|fix|add|remind|pack|clean|organize)\b/i;
+const TASK_VERB_PATTERN = /^(call|email|e-mail|text|buy|pick up|schedule|finish|send|pay|return|get|grab|water|mail|submit|review|fix|add|remind|pack|clean|organize|do|make|run|take|put|throw|hang|sort|move|set|check|change|replace|install|repair|pick|drop|feed|walk)\b/i;
+const CHORE_VERB_PATTERN = /^(vacuum|mop|dust|sweep|fold|wash|wipe|scrub|empty|load|unload|rake|mow|weed|iron|tidy|sanitize|rinse|polish|shampoo|defrost|descale|unclog|declutter|disinfect|bleach|squeegee|deodorize|straighten)\b/i;
 const IDEA_PATTERN = /\b(book idea|article idea|story idea|sermon idea|chapter idea|essay idea)\b/i;
-const TASK_LIST_TITLE_PATTERN = /^(todo|tasks|errands|checklist|shopping list|grocery list)\b/i;
+const TASK_LIST_TITLE_PATTERN = /^(todo|tasks|to-?do|errands|checklist|shopping list|grocery list|chores|house chores|cleaning(?: list)?|weekend tasks)\b/i;
+const TASK_LIST_FRAMING_PATTERN = /\b(chores?|errands?|to-?do(?:\s+list)?|checklist|shopping\s+list|grocery\s+list|cleaning(?:\s+list)?|house(?:hold)?\s+(?:chores?|tasks?)|weekend\s+tasks?|honey-?do)\b/i;
+const CONCEPTUAL_NUMBERED_PATTERN = /^\d+[.)]\s+.*\b(is|are|was|were|means|suggests|implies|shapes|creates|cultivated)\b/i;
+const APHORISM_SPIRITUAL_PATTERN = /\b(our\s+)?(lord|god|christ|jesus|spirit|faith|love|grace|truth|hope|peace)\b/i;
+const DECLARATIVE_IS_PATTERN = /^[A-Za-z"'“‘][\w\s'’”]{0,60}\s+(is|are|was|were|becomes?)\s+/i;
+const TASK_NEED_PATTERN = /\b(?:i\s+)?need\s+to\b/i;
+const TASK_OBLIGATION_PATTERN = /\b(?:have\s+to|must|should|got\s+to)\b/i;
+const TASK_BY_DATE_PATTERN = /\bby\s+(?:this\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|next\s+\w+|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2})\b/i;
+const INCLUDING_TASKS_PATTERN = /\bincluding\s+.+/i;
+const APPEND_TO_LIST_PATTERN = /\b(?:add|append|include|put)\s+.+\s+(?:to|on|into)\s+(?:the\s+|my\s+|that\s+)?(?:list|.+)$/i;
 
 export const CAPTURE_JOB_PROCESSING_STATUSES: CaptureJobStatus[] = [
   'pending',
@@ -32,6 +43,65 @@ export const CAPTURE_JOB_TERMINAL_STATUSES: CaptureJobStatus[] = [
 ];
 
 export const MAX_CAPTURE_JOBS = 100;
+
+function looksLikeActionLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.length > 96) {
+    return false;
+  }
+
+  if (BULLET_LINE_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  if (TASK_VERB_PATTERN.test(trimmed) || CHORE_VERB_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  if (CONCEPTUAL_NUMBERED_PATTERN.test(trimmed)) {
+    return false;
+  }
+
+  const wordCount = trimmed.split(/\s+/).length;
+  if (wordCount >= 2 && wordCount <= 10 && !/[.!?]/.test(trimmed) && !DECLARATIVE_IS_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  return wordCount === 1 && trimmed.length <= 32 && !DECLARATIVE_IS_PATTERN.test(trimmed);
+}
+
+function countActionLikeLines(lines: string[]): number {
+  return lines.filter(looksLikeActionLine).length;
+}
+
+function hasTaskListFraming(title: string, content: string): boolean {
+  const combined = `${title}\n${content}`.trim();
+  return TASK_LIST_TITLE_PATTERN.test(title.trim()) || TASK_LIST_FRAMING_PATTERN.test(combined);
+}
+
+function looksLikePlainTaskList(title: string, content: string, lines: string[]): boolean {
+  if (lines.length === 0) {
+    return false;
+  }
+
+  if (hasTaskListFraming(title, content) && lines.length >= 1) {
+    return true;
+  }
+
+  const actionLikeLineCount = countActionLikeLines(lines);
+  if (lines.length >= 2 && actionLikeLineCount >= 2) {
+    return true;
+  }
+
+  if (lines.length === 1) {
+    const commaSegments = lines[0].split(/,\s+/).map(segment => segment.trim()).filter(Boolean);
+    if (commaSegments.length >= 3 && countActionLikeLines(commaSegments) >= 2) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export function buildUserOverrideClassification(route: CaptureRoute): CaptureClassificationResult {
   return {
@@ -56,6 +126,16 @@ export function inferObviousCaptureRoute(
 
   if (!combined) {
     return null;
+  }
+
+  if (APPEND_TO_LIST_PATTERN.test(combined)) {
+    return {
+      route: 'todo',
+      confidence: 0.9,
+      confidenceBand: 'high',
+      reasoning: 'Append-to-list language suggests adding tasks to an existing todo list.',
+      needsClarification: false,
+    };
   }
 
   if (IDEA_PATTERN.test(combined)) {
@@ -88,6 +168,16 @@ export function inferObviousCaptureRoute(
     };
   }
 
+  if (looksLikePlainTaskList(trimmedTitle, trimmedContent, lines)) {
+    return {
+      route: 'todo',
+      confidence: 0.87,
+      confidenceBand: 'high',
+      reasoning: 'Multiple action lines or task-list framing suggests a chore or errand list.',
+      needsClarification: false,
+    };
+  }
+
   if (listLineCount === 1) {
     return {
       route: 'todo',
@@ -99,6 +189,45 @@ export function inferObviousCaptureRoute(
   }
 
   const primaryLine = lines[0] || trimmedTitle;
+
+  if (
+    lines.length <= 1
+    && combined.length <= 96
+    && !TASK_VERB_PATTERN.test(primaryLine)
+    && !TASK_NEED_PATTERN.test(combined)
+    && (
+      APHORISM_SPIRITUAL_PATTERN.test(primaryLine)
+      || DECLARATIVE_IS_PATTERN.test(primaryLine)
+    )
+  ) {
+    return {
+      route: 'card',
+      confidence: 0.86,
+      confidenceBand: 'high',
+      reasoning: 'Short declarative note without task language suggests a library card.',
+      needsClarification: false,
+    };
+  }
+
+  if (
+    TASK_NEED_PATTERN.test(combined)
+    || TASK_OBLIGATION_PATTERN.test(combined)
+    || (INCLUDING_TASKS_PATTERN.test(combined) && TASK_VERB_PATTERN.test(combined))
+  ) {
+    if (
+      TASK_BY_DATE_PATTERN.test(combined)
+      || INCLUDING_TASKS_PATTERN.test(combined)
+      || TASK_VERB_PATTERN.test(primaryLine)
+    ) {
+      return {
+        route: 'todo',
+        confidence: 0.88,
+        confidenceBand: 'high',
+        reasoning: 'Action language with a deadline or included subtasks suggests a task list.',
+        needsClarification: false,
+      };
+    }
+  }
   if (primaryLine && TASK_VERB_PATTERN.test(primaryLine)) {
     return {
       route: 'todo',
@@ -119,7 +248,13 @@ export function inferObviousCaptureRoute(
     };
   }
 
-  if (listLineCount === 0 && trimmedContent.length >= 48 && !TASK_VERB_PATTERN.test(trimmedContent)) {
+  if (
+    listLineCount === 0
+    && trimmedContent.length >= 48
+    && !TASK_VERB_PATTERN.test(trimmedContent)
+    && !CHORE_VERB_PATTERN.test(trimmedContent)
+    && !looksLikePlainTaskList(trimmedTitle, trimmedContent, lines)
+  ) {
     return {
       route: 'card',
       confidence: 0.75,
@@ -140,6 +275,58 @@ export function inferObviousCaptureRoute(
   }
 
   return null;
+}
+
+const CLASSIFICATION_CLARIFICATION_MAX_CONFIDENCE = 0.42;
+
+export function finalizeCaptureClassification(
+  result: CaptureClassificationResult
+): CaptureClassificationResult {
+  if (!result.needsClarification) {
+    return result;
+  }
+
+  if (result.confidence >= CLASSIFICATION_CLARIFICATION_MAX_CONFIDENCE) {
+    return {
+      ...result,
+      needsClarification: false,
+      clarificationPrompt: undefined,
+    };
+  }
+
+  const alternatives = result.alternatives ?? [];
+  const hasCloseAlternative = alternatives.some(
+    alternative => Math.abs(alternative.confidence - result.confidence) <= 0.12
+  );
+
+  if (!hasCloseAlternative && result.confidence >= 0.3) {
+    return {
+      ...result,
+      needsClarification: false,
+      clarificationPrompt: undefined,
+    };
+  }
+
+  return result;
+}
+
+export function buildAiUnavailableClassificationFallback(
+  title: string,
+  content: string,
+  localSignals: CaptureClassifyLocalSignals
+): CaptureClassificationResult {
+  const obvious = inferObviousCaptureRoute(title, content, localSignals);
+  if (obvious) {
+    return obvious;
+  }
+
+  return {
+    route: 'card',
+    confidence: 0.35,
+    confidenceBand: 'low',
+    reasoning: 'AI classification was unavailable, so Second Mind continued with a library note route.',
+    needsClarification: false,
+  };
 }
 
 export function buildLocalClassificationFallback(
@@ -353,8 +540,93 @@ export function getInboxCaptureStructuredDraft(
   return capture.enrichment?.structuredDraft;
 }
 
+export function getInboxCaptureFilingSuggestion(
+  capture: InboxCapture
+): CardFilingSuggestion | undefined {
+  return capture.enrichment?.filingSuggestion;
+}
+
+export function getInboxCaptureFilingLabel(capture: InboxCapture): string | null {
+  const filing = getInboxCaptureFilingSuggestion(capture);
+  if (!filing) {
+    return null;
+  }
+
+  if (filing.mode === 'existing_category' && filing.suggestedCategoryTitle) {
+    const range = filing.suggestedCategoryRange?.trim();
+    return range ? `${range} — ${filing.suggestedCategoryTitle}` : filing.suggestedCategoryTitle;
+  }
+
+  if (filing.mode === 'new_category' && filing.suggestedNewCategoryTitle) {
+    const parent = filing.suggestedParentTitle?.trim();
+    return parent
+      ? `New shelf under ${parent}: ${filing.suggestedNewCategoryTitle}`
+      : filing.suggestedNewCategoryTitle;
+  }
+
+  if (filing.mode === 'manual_review') {
+    return 'Needs filing review';
+  }
+
+  return null;
+}
+
+const normalizeComparableCaptureText = (value: string): string =>
+  value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+export function captureEnrichmentHasMeaningfulWork(
+  capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>,
+  draft: CaptureStructuringResult
+): boolean {
+  if (draft.strategy === 'ai' || draft.strategy === 'merged') {
+    return true;
+  }
+
+  const hasSourceFill = Boolean(
+    draft.suggestedSource?.title?.trim()
+    || draft.suggestedSource?.author?.trim()
+    || draft.suggestedSource?.url?.trim()
+    || draft.suggestedSource?.page?.trim()
+    || (draft.suggestedSource?.type && draft.suggestedSource.type !== 'Other')
+  );
+
+  if ((draft.suggestedTags?.length ?? 0) > 0) {
+    return true;
+  }
+
+  if ((draft.suggestedRelatedAddresses?.length ?? 0) > 0) {
+    return true;
+  }
+
+  if ((draft.corrections?.length ?? 0) > 0) {
+    return true;
+  }
+
+  if (hasSourceFill) {
+    return true;
+  }
+
+  const titleChanged = Boolean(
+    draft.suggestedTitle?.trim()
+    && normalizeComparableCaptureText(draft.suggestedTitle)
+      !== normalizeComparableCaptureText(capture.title)
+  );
+  const contentChanged = Boolean(
+    draft.suggestedContent?.trim()
+    && normalizeComparableCaptureText(draft.suggestedContent)
+      !== normalizeComparableCaptureText(capture.content)
+  );
+
+  return titleChanged || contentChanged;
+}
+
 export function inboxCaptureIsReadyToFile(capture: InboxCapture): boolean {
-  return Boolean(getInboxCaptureStructuredDraft(capture));
+  const draft = getInboxCaptureStructuredDraft(capture);
+  if (!draft) {
+    return false;
+  }
+
+  return captureEnrichmentHasMeaningfulWork(capture, draft);
 }
 
 export type InboxCaptureDisplayStatus =
@@ -420,10 +692,12 @@ export function getInboxCaptureDisplayPreview(capture: InboxCapture): string {
 export function applyEnrichmentToCapture(
   capture: InboxCapture,
   enrichment: CaptureStructuringResult,
-  jobId: string
+  jobId: string,
+  filingSuggestion?: CardFilingSuggestion | null
 ): InboxCapture {
   const structuredDraft: InboxCaptureEnrichment = {
     structuredDraft: enrichment,
+    filingSuggestion: filingSuggestion ?? undefined,
     enrichedAt: new Date().toISOString(),
     jobId,
   };

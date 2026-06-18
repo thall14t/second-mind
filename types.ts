@@ -25,6 +25,7 @@ export interface CardSource {
 
 export interface InboxCaptureEnrichment {
   structuredDraft: CaptureStructuringResult;
+  filingSuggestion?: CardFilingSuggestion;
   enrichedAt: string;
   jobId: string;
 }
@@ -101,6 +102,14 @@ export interface TodoGenerationResult {
   strategy?: 'local' | 'ai' | 'merged';
 }
 
+export interface ExistingTodoSummary {
+  clientId: string;
+  title: string;
+  parentClientId?: string | null;
+  sortOrder: number;
+  completed: boolean;
+}
+
 export interface CaptureGenerateTodosPayload {
   capture: Pick<InboxCapture, 'id' | 'title' | 'content' | 'sourceText' | 'createdAt'>;
   localDraft: {
@@ -109,6 +118,7 @@ export interface CaptureGenerateTodosPayload {
   };
   context?: {
     existingCardAddresses?: string[];
+    existingTodos?: ExistingTodoSummary[];
   };
 }
 
@@ -217,6 +227,9 @@ export interface CaptureStructuringResult {
   suggestedTitle: string;
   suggestedContent: string;
   suggestedSource?: CardSource;
+  suggestedTags?: string[];
+  suggestedStatus?: 'Seed' | 'Growing' | 'Evergreen';
+  suggestedRelatedAddresses?: string[];
   corrections?: string[];
   confidence?: number;
   confidenceBand?: AiDecisionConfidenceBand;
@@ -295,6 +308,18 @@ export interface AiAssistPayload {
   rejectedSuggestion?: CardFilingSuggestion;
   semanticHints?: string[];
   topLevelCategories: AiAssistCategoryNode[];
+  categories?: Array<{
+    id: string;
+    range: string;
+    title: string;
+    isLeaf: boolean;
+  }>;
+}
+
+export interface ExistingCardSummary {
+  address: string;
+  title: string;
+  tags?: string[];
 }
 
 export interface CaptureStructuringPayload {
@@ -304,6 +329,9 @@ export interface CaptureStructuringPayload {
     sourceText?: string;
   };
   localDraft: CaptureStructuringResult;
+  context?: {
+    existingCards?: ExistingCardSummary[];
+  };
 }
 
 export type ThinkingStepState = 'pending' | 'active' | 'done';

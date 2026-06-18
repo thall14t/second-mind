@@ -32,12 +32,24 @@ function runTests() {
   assert.strictEqual(classified.needsClarification, false);
   assert.strictEqual(classified.confidenceBand, 'low');
 
-  const needsPrompt = normalizeClassificationResult({
+  const suppressedPrompt = normalizeClassificationResult({
     route: 'card',
     confidence: 0.4,
     reasoning: 'Unclear.',
     needsClarification: true,
     clarificationPrompt: 'Library or tasks?',
+  });
+  assert.strictEqual(suppressedPrompt.needsClarification, false);
+
+  const needsPrompt = normalizeClassificationResult({
+    route: 'card',
+    confidence: 0.28,
+    reasoning: 'Could be either.',
+    needsClarification: true,
+    clarificationPrompt: 'Library or tasks?',
+    alternatives: [
+      { route: 'todo', confidence: 0.26, reasoning: 'Could also be errands.' },
+    ],
   });
   assert.strictEqual(needsPrompt.needsClarification, true);
   assert.ok(needsPrompt.clarificationPrompt);
@@ -78,6 +90,20 @@ function runTests() {
     },
   });
   assert.deepStrictEqual(generateContext.context.existingCardAddresses, ['0102a', 'bad']);
+
+  const appendContext = prepareGenerateTodosContext({
+    capture: { title: '', content: 'Add wipe counters to house chores' },
+    localDraft: { todos: [] },
+    context: {
+      existingTodos: [
+        { clientId: 'house-root', title: 'House chores', parentClientId: null, sortOrder: 0, completed: false },
+        { clientId: 'child-1', title: 'Vacuum living room', parentClientId: 'house-root', sortOrder: 0, completed: false },
+      ],
+    },
+  });
+  assert.strictEqual(appendContext.context.existingTodos.length, 2);
+  assert.strictEqual(appendContext.context.existingTodos[0].clientId, 'house-root');
+  assert.match(appendContext.outputRules.appendToExistingList, /parentClientId/);
 
   const generated = normalizeTodoGenerationResult(
     {

@@ -1,3 +1,63 @@
+const WEEKDAY_NAMES = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+] as const;
+
+const formatIsoDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const resolveRelativeDueDate = (
+  phrase: string,
+  referenceDate = new Date()
+): string | undefined => {
+  const normalized = phrase.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (/\btomorrow\b/.test(normalized)) {
+    const nextDay = new Date(referenceDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return formatIsoDate(nextDay);
+  }
+
+  if (/\btoday\b/.test(normalized)) {
+    return formatIsoDate(referenceDate);
+  }
+
+  const dayMatch = normalized.match(
+    /\b(?:this\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/
+  );
+  if (dayMatch) {
+    const targetDay = WEEKDAY_NAMES.indexOf(dayMatch[1] as typeof WEEKDAY_NAMES[number]);
+    if (targetDay === -1) {
+      return undefined;
+    }
+
+    const dueDate = new Date(referenceDate);
+    const currentDay = dueDate.getDay();
+    let daysUntil = (targetDay - currentDay + 7) % 7;
+
+    if (daysUntil === 0 && !/\bthis\s+/.test(normalized)) {
+      daysUntil = 7;
+    }
+
+    dueDate.setDate(dueDate.getDate() + daysUntil);
+    return formatIsoDate(dueDate);
+  }
+
+  return undefined;
+};
+
 export const formatTodoDueDate = (dueDate?: string): string | null => {
   if (!dueDate?.trim()) {
     return null;
@@ -31,8 +91,5 @@ export const normalizeTodoDueDateInput = (value: string): string | undefined => 
     return undefined;
   }
 
-  const year = parsed.getFullYear();
-  const month = `${parsed.getMonth() + 1}`.padStart(2, '0');
-  const day = `${parsed.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return formatIsoDate(parsed);
 };

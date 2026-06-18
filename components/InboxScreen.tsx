@@ -8,6 +8,7 @@ import {
   getInboxCaptureDisplayPreview,
   getInboxCaptureDisplayStatus,
   getInboxCaptureDisplayTitle,
+  getInboxCaptureFilingLabel,
   getInboxCaptureStatusLabel,
   inboxCaptureIsReadyToFile,
 } from '../utils/captureJobs';
@@ -68,6 +69,8 @@ export default function InboxScreen({
             ? getInboxCaptureDisplayPreview(capture)
             : capture.content;
 
+          const openCapture = () => onFileCapture(capture);
+
           return (
             <View
               key={capture.id}
@@ -80,6 +83,7 @@ export default function InboxScreen({
                 },
               ]}
             >
+              <TouchableOpacity activeOpacity={0.82} onPress={openCapture}>
               <View style={styles.inboxMetaRow}>
                 <Text style={[styles.inboxMeta, { color: theme.mutedText }]}>{formatCardDate(capture.createdAt)}</Text>
                 <View style={styles.inboxMetaPills}>
@@ -120,7 +124,9 @@ export default function InboxScreen({
 
               {readyToFile ? (
                 <Text style={[styles.inboxReadyHint, { color: theme.accent }]}>
-                  Structured draft ready. Tap File This to open the prefilled card form.
+                  {getInboxCaptureFilingLabel(capture)
+                    ? `Ready to file in ${getInboxCaptureFilingLabel(capture)}. Tap to review.`
+                    : 'Structured draft ready. Tap to open the prefilled card form.'}
                 </Text>
               ) : null}
 
@@ -135,6 +141,7 @@ export default function InboxScreen({
                   Source: {capture.sourceText}
                 </Text>
               ) : null}
+              </TouchableOpacity>
 
               {displayStatus === 'awaiting_clarification' && onResolveCaptureType ? (
                 <View style={styles.inboxActionRow}>

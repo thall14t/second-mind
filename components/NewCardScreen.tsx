@@ -27,6 +27,7 @@ interface NewCardScreenProps {
   aiSuggestionStatus: FilingSuggestionStatus | null;
   isSuggestingFiling: boolean;
   aiThinkingState: ThinkingState | null;
+  filingFromInbox?: boolean;
   onAddressChange: (value: string) => void;
   onTitleChange: (value: string) => void;
   onContentChange: (value: string) => void;
@@ -73,6 +74,7 @@ export default function NewCardScreen({
   aiSuggestionStatus,
   isSuggestingFiling,
   aiThinkingState,
+  filingFromInbox = false,
   onAddressChange,
   onTitleChange,
   onContentChange,
@@ -231,25 +233,29 @@ export default function NewCardScreen({
           <View style={{ flex: 1 }}>
             <Text style={[styles.aiAssistTitle, { color: theme.text }]}>AI Cataloguing Assist</Text>
             <Text style={[styles.aiAssistBody, { color: theme.mutedText }]}>
-              Draft first, then let Second Mind suggest where the card belongs.
+              {filingFromInbox
+                ? 'Second Mind is applying the filing suggestion from your capture.'
+                : 'Draft first, then let Second Mind suggest where the card belongs.'}
             </Text>
           </View>
-          <TouchableOpacity
-            style={[
-              styles.aiAssistButton,
-              { backgroundColor: theme.primaryButton, opacity: isSuggestingFiling ? 0.65 : 1 },
-            ]}
-            onPress={onSuggestFiling}
-            disabled={isSuggestingFiling}
-          >
-            {isSuggestingFiling ? (
-              <ThinkingDots style={[styles.aiAssistButtonText, { color: theme.primaryButtonText }]} />
-            ) : (
-              <Text style={[styles.aiAssistButtonText, { color: theme.primaryButtonText }]}>
-                Suggest Filing
-              </Text>
-            )}
-          </TouchableOpacity>
+          {!filingFromInbox ? (
+            <TouchableOpacity
+              style={[
+                styles.aiAssistButton,
+                { backgroundColor: theme.primaryButton, opacity: isSuggestingFiling ? 0.65 : 1 },
+              ]}
+              onPress={onSuggestFiling}
+              disabled={isSuggestingFiling}
+            >
+              {isSuggestingFiling ? (
+                <ThinkingDots style={[styles.aiAssistButtonText, { color: theme.primaryButtonText }]} />
+              ) : (
+                <Text style={[styles.aiAssistButtonText, { color: theme.primaryButtonText }]}>
+                  Suggest Filing
+                </Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {isSuggestingFiling && aiThinkingState?.kind === 'filing' && (

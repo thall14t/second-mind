@@ -286,6 +286,7 @@ export const useAiFiling = ({
     aiSuggestion,
     aiSuggestionStatus,
     setAiSuggestion,
+    setAiSuggestionStatus,
     isSuggestingFiling,
     cancelActiveFilingSuggestionWork,
     requestFilingSuggestion,

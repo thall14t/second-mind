@@ -2,22 +2,39 @@ import { useCallback, useRef } from 'react';
 import {
   CaptureClassificationResult,
   CaptureStructuringResult,
+  Card,
+  CardFilingSuggestion,
   InboxCapture,
+  ManagedCategory,
   Todo,
   TodoGenerationResult,
 } from '../types';
-import { buildLocalCaptureDraft, buildCapturePayload, mergeCaptureStructuring } from '../utils/aiCataloguing';
+import {
+  buildCapturePayload,
+  buildExistingCardSummariesForEnrichment,
+  buildFilingPlanV2,
+  buildMinimalCaptureStructuringDraft,
+  restrainStructuringToCapture,
+} from '../utils/aiCataloguing';
+import {
+  buildAiAssistPayload,
+  buildDraftFromCaptureStructuring,
+  finalizeFilingSuggestion,
+} from '../utils/aiFiling';
 import { buildAiRequestCacheKey, fetchJsonWithTimeout } from '../utils/aiRequests';
 import {
   applyEnrichmentToCapture,
+  buildAiUnavailableClassificationFallback,
   buildClassificationLocalSignals,
-  buildLocalClassificationFallback,
+  finalizeCaptureClassification,
   buildLocalTodoGenerationResult,
   buildUserOverrideClassification,
-  inferObviousCaptureRoute,
-  mapTodoGenerationToTodos,
-  mapTodosToGenerationDrafts,
 } from '../utils/captureJobs';
+import {
+  buildExistingTodoSummariesForGeneration,
+  buildLocalAppendTodoGeneration,
+  mergeTodoGenerationIntoExisting,
+} from '../utils/todoAppend';
 import { parseTodosFromCapture } from '../utils/todoParsing';
 import { ensureTodoSortOrders } from '../utils/todoTree';
 import { useCaptureJobs } from './useCaptureJobs';
@@ -26,6 +43,7 @@ const AI_RESPONSE_CACHE_LIMIT = 40;
 const CLASSIFY_CAPTURE_TIMEOUT_MS = 12_000;
 const ENRICH_CAPTURE_TIMEOUT_MS = 18_000;
 const GENERATE_TODOS_TIMEOUT_MS = 18_000;
+const FILING_SUGGESTION_TIMEOUT_MS = 20_000;
 
 const rememberCachedAiValue = <T,>(cache: Map<string, T>, key: string, value: T) => {
   if (cache.has(key)) {
@@ -51,6 +69,10 @@ interface UseCaptureRoutingParams {
   getTodos: () => Todo[];
   saveTodos: (todos: Todo[]) => Promise<void>;
   getCardAddresses: () => string[];
+  getAllCategories: () => ManagedCategory[];
+  getCategoryTree: () => ManagedCategory[];
+  getCards: () => Card[];
+  getAiAssistEndpoint: () => string;
 }
 
 export const useCaptureRouting = ({
@@ -61,6 +83,10 @@ export const useCaptureRouting = ({
   getTodos,
   saveTodos,
   getCardAddresses,
+  getAllCategories,
+  getCategoryTree,
+  getCards,
+  getAiAssistEndpoint,
 }: UseCaptureRoutingParams) => {
   const classifyCacheRef = useRef(new Map<string, CaptureClassificationResult>());
   const classifyInFlightRef = useRef(new Map<string, Promise<CaptureClassificationResult>>());
@@ -68,6 +94,8 @@ export const useCaptureRouting = ({
   const enrichInFlightRef = useRef(new Map<string, Promise<CaptureStructuringResult>>());
   const generateCacheRef = useRef(new Map<string, TodoGenerationResult>());
   const generateInFlightRef = useRef(new Map<string, Promise<TodoGenerationResult>>());
+  const filingCacheRef = useRef(new Map<string, CardFilingSuggestion>());
+  const filingInFlightRef = useRef(new Map<string, Promise<CardFilingSuggestion>>());
 
   const getClassifyEndpoint = useCallback(
     () => `${getAiBaseEndpoint().replace(/\/+$/, '')}/api/classify-capture`,
@@ -84,6 +112,11 @@ export const useCaptureRouting = ({
     [getAiBaseEndpoint]
   );
 
+  const getFilingEndpoint = useCallback(
+    () => `${getAiAssistEndpoint().replace(/\/+$/, '')}/api/suggest-card-filing`,
+    [getAiAssistEndpoint]
+  );
+
   const requestCaptureClassification = useCallback(async (
     capture: InboxCapture,
     userOverride?: 'card' | 'todo' | null
@@ -93,11 +126,6 @@ export const useCaptureRouting = ({
     }
 
     const localSignals = buildClassificationLocalSignals(capture.title, capture.content);
-    const obvious = inferObviousCaptureRoute(capture.title, capture.content, localSignals);
-    if (obvious) {
-      return obvious;
-    }
-
     const payload = {
       capture: {
         id: capture.id,
@@ -132,7 +160,7 @@ export const useCaptureRouting = ({
             throw new Error(data.error || 'Capture classification failed.');
           }
 
-          return data.result;
+          return finalizeCaptureClassification(data.result);
         })().finally(() => {
           classifyInFlightRef.current.delete(cacheKey);
         });
@@ -144,11 +172,10 @@ export const useCaptureRouting = ({
       rememberCachedAiValue(classifyCacheRef.current, cacheKey, result);
       return result;
     } catch {
-      const fallback = buildLocalClassificationFallback(
+      const fallback = buildAiUnavailableClassificationFallback(
         capture.title,
         capture.content,
-        localSignals,
-        userOverride
+        localSignals
       );
       rememberCachedAiValue(classifyCacheRef.current, cacheKey, fallback);
       return fallback;
@@ -158,21 +185,15 @@ export const useCaptureRouting = ({
   const requestCaptureEnrichment = useCallback(async (
     capture: InboxCapture
   ): Promise<CaptureStructuringResult> => {
-    const localDraft = buildLocalCaptureDraft(capture);
-    const payload = buildCapturePayload(capture, localDraft.result);
+    const minimalDraft = buildMinimalCaptureStructuringDraft(capture);
+    const payload = buildCapturePayload(capture, minimalDraft, {
+      existingCards: buildExistingCardSummariesForEnrichment(getCards()),
+    });
     const endpoint = getEnrichEndpoint();
     const cacheKey = buildAiRequestCacheKey(endpoint, payload);
     const cached = enrichCacheRef.current.get(cacheKey);
     if (cached) {
       return cached;
-    }
-
-    if (!localDraft.shouldUseAi) {
-      return {
-        ...localDraft.result,
-        strategy: 'local',
-        confidenceBand: 'low',
-      };
     }
 
     try {
@@ -189,7 +210,10 @@ export const useCaptureRouting = ({
             throw new Error(data.error || 'Capture enrichment failed.');
           }
 
-          return mergeCaptureStructuring(localDraft.result, data.result);
+          return restrainStructuringToCapture(capture, {
+            ...data.result,
+            strategy: data.result.strategy ?? 'ai',
+          });
         })().finally(() => {
           enrichInFlightRef.current.delete(cacheKey);
         });
@@ -201,24 +225,15 @@ export const useCaptureRouting = ({
       rememberCachedAiValue(enrichCacheRef.current, cacheKey, result);
       return result;
     } catch {
-      const fallback: CaptureStructuringResult = {
-        ...localDraft.result,
-        strategy: 'local',
-        confidenceBand: 'low',
-      };
+      const fallback = restrainStructuringToCapture(capture, minimalDraft);
       rememberCachedAiValue(enrichCacheRef.current, cacheKey, fallback);
       return fallback;
     }
-  }, [getEnrichEndpoint]);
+  }, [getCards, getEnrichEndpoint]);
 
   const requestTodoGeneration = useCallback(async (
     capture: InboxCapture
   ): Promise<TodoGenerationResult> => {
-    const parsedTodos = parseTodosFromCapture(capture.title, capture.content);
-    const localDraft = {
-      todos: mapTodosToGenerationDrafts(parsedTodos),
-      strategy: 'local' as const,
-    };
     const payload = {
       capture: {
         id: capture.id,
@@ -227,9 +242,13 @@ export const useCaptureRouting = ({
         sourceText: capture.sourceText,
         createdAt: capture.createdAt,
       },
-      localDraft,
+      localDraft: {
+        todos: [],
+        strategy: 'local' as const,
+      },
       context: {
         existingCardAddresses: getCardAddresses().slice(0, 50),
+        existingTodos: buildExistingTodoSummariesForGeneration(getTodos()),
       },
     };
     const endpoint = getGenerateTodosEndpoint();
@@ -253,7 +272,10 @@ export const useCaptureRouting = ({
             throw new Error(data.error || 'Todo generation failed.');
           }
 
-          return data.result;
+          return {
+            ...data.result,
+            strategy: data.result.strategy ?? 'ai',
+          };
         })().finally(() => {
           generateInFlightRef.current.delete(cacheKey);
         });
@@ -265,17 +287,82 @@ export const useCaptureRouting = ({
       rememberCachedAiValue(generateCacheRef.current, cacheKey, result);
       return result;
     } catch {
-      const fallback = buildLocalTodoGenerationResult(parsedTodos);
+      const existingTodos = getTodos();
+      const appendFallback = buildLocalAppendTodoGeneration(capture, existingTodos);
+      const fallback = appendFallback ?? buildLocalTodoGenerationResult(
+        parseTodosFromCapture(capture.title, capture.content)
+      );
       rememberCachedAiValue(generateCacheRef.current, cacheKey, fallback);
       return fallback;
     }
-  }, [getCardAddresses, getGenerateTodosEndpoint]);
+  }, [getCardAddresses, getGenerateTodosEndpoint, getTodos]);
+
+  const requestCaptureFiling = useCallback(async (
+    enrichment: CaptureStructuringResult
+  ): Promise<CardFilingSuggestion | null> => {
+    const draft = buildDraftFromCaptureStructuring(enrichment);
+    const cards = getCards();
+    const allCategories = getAllCategories();
+    const filingPlan = buildFilingPlanV2({
+      draft,
+      categories: allCategories,
+      cards,
+    });
+    const payload = buildAiAssistPayload({
+      draft,
+      filingPlan,
+      categoryTree: getCategoryTree(),
+      allCategories,
+    });
+    const endpoint = getFilingEndpoint();
+    const cacheKey = buildAiRequestCacheKey(endpoint, payload);
+    const cached = filingCacheRef.current.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      let requestPromise = filingInFlightRef.current.get(cacheKey);
+      if (!requestPromise) {
+        requestPromise = (async () => {
+          const { response, data } = await fetchJsonWithTimeout<{ suggestion?: CardFilingSuggestion; error?: string }>(
+            endpoint,
+            payload,
+            FILING_SUGGESTION_TIMEOUT_MS
+          );
+
+          if (!response.ok || !data.suggestion) {
+            throw new Error(data.error || 'Capture filing suggestion failed.');
+          }
+
+          return finalizeFilingSuggestion({
+            suggestion: data.suggestion,
+            draft,
+            filingPlan,
+            allCategories,
+            cards,
+          });
+        })().finally(() => {
+          filingInFlightRef.current.delete(cacheKey);
+        });
+
+        filingInFlightRef.current.set(cacheKey, requestPromise);
+      }
+
+      const result = await requestPromise;
+      rememberCachedAiValue(filingCacheRef.current, cacheKey, result);
+      return result;
+    } catch {
+      return null;
+    }
+  }, [getAllCategories, getCategoryTree, getCards, getFilingEndpoint]);
 
   const completeCardRoute = useCallback(async (
     jobId: string,
     capture: InboxCapture
   ) => {
     const enrichment = await requestCaptureEnrichment(capture);
+    const filingSuggestion = await requestCaptureFiling(enrichment);
     const latestCaptures = getInboxCaptures();
     const captureStillExists = latestCaptures.some(item => item.id === capture.id);
     if (!captureStillExists) {
@@ -285,7 +372,7 @@ export const useCaptureRouting = ({
 
     const updatedCaptures = latestCaptures.map(item => (
       item.id === capture.id
-        ? applyEnrichmentToCapture(item, enrichment, jobId)
+        ? applyEnrichmentToCapture(item, enrichment, jobId, filingSuggestion)
         : item
     ));
     await saveInboxCaptures(updatedCaptures);
@@ -294,6 +381,7 @@ export const useCaptureRouting = ({
     captureJobsApi,
     getInboxCaptures,
     requestCaptureEnrichment,
+    requestCaptureFiling,
     saveInboxCaptures,
   ]);
 
@@ -302,13 +390,15 @@ export const useCaptureRouting = ({
     capture: InboxCapture
   ) => {
     const generation = await requestTodoGeneration(capture);
-    const newTodos = mapTodoGenerationToTodos(generation.todos);
-    if (newTodos.length === 0) {
+    const existingTodos = getTodos();
+    const mergedTodos = mergeTodoGenerationIntoExisting(generation, existingTodos, capture);
+    const newTodoCount = mergedTodos.length - existingTodos.length;
+    if (newTodoCount === 0) {
       await captureJobsApi.markJobFailed(jobId, 'No todos could be generated from this capture.');
       return;
     }
 
-    await saveTodos(ensureTodoSortOrders([...newTodos, ...getTodos()]));
+    await saveTodos(ensureTodoSortOrders(mergedTodos));
     await saveInboxCaptures(getInboxCaptures().filter(item => item.id !== capture.id));
     await captureJobsApi.recordTodoGeneration(jobId, generation);
   }, [

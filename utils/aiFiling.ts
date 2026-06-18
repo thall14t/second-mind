@@ -4,7 +4,9 @@ import {
   CardFilingDetailsSuggestion,
   CardFilingSuggestion,
   CardSource,
+  CaptureStructuringResult,
   FilingLeafCandidate,
+  InboxCapture,
   ManagedCategory,
   ThinkingState,
 } from '../types';
@@ -402,6 +404,219 @@ export const mergeFilingSuggestionWithLocalDetails = (
             ...candidate,
             alternativeSuggestions: [],
           })),
+  };
+};
+
+export const buildDraftFromCaptureStructuring = (
+  enrichment: {
+    suggestedTitle?: string;
+    suggestedContent?: string;
+    suggestedSource?: CardSource;
+    suggestedTags?: string[];
+  },
+  address = ''
+): AiAssistPayload['draft'] => ({
+  address,
+  title: enrichment.suggestedTitle?.trim() ?? '',
+  content: enrichment.suggestedContent?.trim() ?? '',
+  tags: enrichment.suggestedTags ?? [],
+  source: normalizeCardSource(enrichment.suggestedSource),
+});
+
+export const buildCataloguingPayloadFromCategories = ({
+  draft,
+  allCategories,
+}: {
+  draft: AiAssistPayload['draft'];
+  allCategories: ManagedCategory[];
+}): AiAssistPayload => ({
+  draft,
+  topLevelCategories: [],
+  categories: allCategories.map(category => ({
+    id: category.id,
+    range: category.range,
+    title: category.title,
+    isLeaf: Boolean(category.isLeaf),
+  })),
+});
+
+export const finalizePipelineFilingSuggestion = ({
+  suggestion,
+  enrichment,
+  cards,
+  allCategories,
+}: {
+  suggestion: CardFilingSuggestion;
+  enrichment: {
+    suggestedTitle?: string;
+    suggestedContent?: string;
+    suggestedSource?: CardSource;
+    suggestedTags?: string[];
+    suggestedStatus?: 'Seed' | 'Growing' | 'Evergreen';
+    suggestedRelatedAddresses?: string[];
+  };
+  cards: Card[];
+  allCategories: ManagedCategory[];
+}): CardFilingSuggestion => {
+  const normalized = normalizeHierarchicalSuggestion({
+    suggestion,
+    cards,
+    allCategories,
+  });
+
+  return {
+    ...normalized,
+    suggestedTitle: enrichment.suggestedTitle?.trim() || normalized.suggestedTitle,
+    suggestedContent: enrichment.suggestedContent?.trim() || normalized.suggestedContent,
+    suggestedTags: enrichment.suggestedTags?.length
+      ? enrichment.suggestedTags
+      : normalized.suggestedTags,
+    suggestedStatus: enrichment.suggestedStatus ?? normalized.suggestedStatus,
+    suggestedRelatedAddresses: enrichment.suggestedRelatedAddresses?.length
+      ? enrichment.suggestedRelatedAddresses
+      : normalized.suggestedRelatedAddresses,
+    suggestedSource: normalizeCardSource(enrichment.suggestedSource ?? normalized.suggestedSource),
+  };
+};
+
+export interface InboxCardFormFields {
+  title: string;
+  content: string;
+  status: 'Seed' | 'Growing' | 'Evergreen';
+  tagsText: string;
+  relatedAddressesText: string;
+  sourceType: CardSource['type'];
+  sourceTitle: string;
+  sourceAuthor: string;
+  sourceUrl: string;
+  sourcePage: string;
+  sourceNote: string;
+}
+
+const mergeTags = (baseTags: string[], extraTags: string[]): string => {
+  const merged = Array.from(new Set([
+    ...baseTags.map(tag => tag.trim()).filter(Boolean),
+    ...extraTags.map(tag => tag.trim()).filter(Boolean),
+  ]));
+  return merged.join(', ');
+};
+
+const mergeRelatedAddresses = (
+  baseAddresses: string[],
+  extraAddresses: string[],
+  cards: Card[],
+  excludeAddress?: string
+): string => {
+  const existingCardAddresses = new Set(cards.map(card => normalizeAddress(card.address)));
+  const excluded = excludeAddress ? normalizeAddress(excludeAddress) : '';
+  const merged = Array.from(new Set([
+    ...baseAddresses.map(normalizeAddress).filter(Boolean),
+    ...extraAddresses
+      .map(normalizeAddress)
+      .filter(address => existingCardAddresses.has(address))
+      .filter(address => address !== excluded),
+  ]));
+  return merged.join(', ');
+};
+
+const defaultCardSource = (): CardSource => ({ type: 'Other' });
+
+const sourceFieldIsRicher = (
+  candidate: CardSource | undefined,
+  current: CardSource | undefined
+): boolean => {
+  const normalizedCandidate = normalizeCardSource(candidate) ?? defaultCardSource();
+  const normalizedCurrent = normalizeCardSource(current) ?? defaultCardSource();
+  const candidateScore = [
+    normalizedCandidate.title,
+    normalizedCandidate.author,
+    normalizedCandidate.url,
+    normalizedCandidate.page,
+    normalizedCandidate.note,
+    normalizedCandidate.type !== 'Other' ? normalizedCandidate.type : '',
+  ].filter(Boolean).length;
+  const currentScore = [
+    normalizedCurrent.title,
+    normalizedCurrent.author,
+    normalizedCurrent.url,
+    normalizedCurrent.page,
+    normalizedCurrent.note,
+    normalizedCurrent.type !== 'Other' ? normalizedCurrent.type : '',
+  ].filter(Boolean).length;
+
+  return candidateScore > currentScore;
+};
+
+export const buildCardFormFieldsFromCaptureEnrichment = ({
+  capture,
+  enrichment,
+  filingSuggestion = null,
+  cards = [],
+  cardAddress = '',
+}: {
+  capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>;
+  enrichment: CaptureStructuringResult | null;
+  filingSuggestion?: CardFilingSuggestion | null;
+  cards?: Card[];
+  cardAddress?: string;
+}): InboxCardFormFields => {
+  const enrichmentSource = normalizeCardSource(enrichment?.suggestedSource);
+  let title = enrichment?.suggestedTitle?.trim() || capture.title;
+  let content = enrichment?.suggestedContent?.trim() || capture.content;
+  let status: 'Seed' | 'Growing' | 'Evergreen' = enrichment?.suggestedStatus ?? 'Seed';
+  let tagsText = (enrichment?.suggestedTags ?? []).join(', ');
+  let relatedAddressesText = (enrichment?.suggestedRelatedAddresses ?? []).join(', ');
+  let source: CardSource = enrichmentSource ?? normalizeCardSource({
+    type: 'Other',
+    note: capture.sourceText?.trim() || undefined,
+  }) ?? defaultCardSource();
+
+  if (filingSuggestion) {
+    if (filingSuggestion.suggestedTitle?.trim()) {
+      title = filingSuggestion.suggestedTitle.trim();
+    }
+
+    if (filingSuggestion.suggestedContent?.trim()) {
+      content = filingSuggestion.suggestedContent.trim();
+    }
+
+    if (filingSuggestion.suggestedTags.length > 0) {
+      tagsText = mergeTags(
+        tagsText ? tagsText.split(',').map(tag => tag.trim()) : [],
+        filingSuggestion.suggestedTags
+      );
+    }
+
+    if (filingSuggestion.suggestedRelatedAddresses.length > 0) {
+      relatedAddressesText = mergeRelatedAddresses(
+        relatedAddressesText ? relatedAddressesText.split(',').map(address => address.trim()) : [],
+        filingSuggestion.suggestedRelatedAddresses,
+        cards,
+        cardAddress
+      );
+    }
+
+    if (['Seed', 'Growing', 'Evergreen'].includes(filingSuggestion.suggestedStatus)) {
+      status = filingSuggestion.suggestedStatus;
+    }
+
+    if (sourceFieldIsRicher(filingSuggestion.suggestedSource, source)) {
+      source = normalizeCardSource(filingSuggestion.suggestedSource) ?? source;
+    }
+  }
+
+  return {
+    title,
+    content,
+    status,
+    tagsText,
+    relatedAddressesText,
+    sourceType: source.type,
+    sourceTitle: source.title ?? '',
+    sourceAuthor: source.author ?? '',
+    sourceUrl: source.url ?? '',
+    sourcePage: source.page ?? '',
+    sourceNote: source.note ?? capture.sourceText ?? '',
   };
 };
 

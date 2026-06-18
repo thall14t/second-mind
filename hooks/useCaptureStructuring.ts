@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 import {
-  AiAssistPayload,
+  Card,
   CardFilingSuggestion,
   CaptureStructuringResult,
   InboxCapture,
@@ -9,8 +9,9 @@ import {
 } from '../types';
 import {
   buildCapturePayload,
-  buildLocalCaptureDraft,
-  mergeCaptureStructuring,
+  buildExistingCardSummariesForEnrichment,
+  buildMinimalCaptureStructuringDraft,
+  restrainStructuringToCapture,
 } from '../utils/aiCataloguing';
 import { buildAiAssistPayload } from '../utils/aiFiling';
 import { buildAiRequestCacheKey, fetchJsonWithTimeout } from '../utils/aiRequests';
@@ -33,11 +34,10 @@ const rememberCachedAiValue = <T,>(cache: Map<string, T>, key: string, value: T)
   }
 };
 
-type LocalCaptureDraftLike = ReturnType<typeof buildLocalCaptureDraft>;
-
 interface UseCaptureStructuringParams {
   categoryTree: ManagedCategory[];
   allCategories: ManagedCategory[];
+  getCards: () => Card[];
   getCaptureStructuringEndpoint: () => string;
   getAiAssistEndpoint: () => string;
   captureTimeoutMs: number;
@@ -47,6 +47,7 @@ interface UseCaptureStructuringParams {
 export const useCaptureStructuring = ({
   categoryTree,
   allCategories,
+  getCards,
   getCaptureStructuringEndpoint,
   getAiAssistEndpoint,
   captureTimeoutMs,
@@ -81,28 +82,27 @@ export const useCaptureStructuring = ({
       throw new Error(data.error || 'The AI assistant did not return structured card fields.');
     }
 
-    return mergeCaptureStructuringResultV2(capture, {
+    return restrainStructuringToCapture(capture, mergeCaptureStructuringResultV2(capture, {
       suggestedTitle: data.suggestion.suggestedTitle,
       suggestedContent: data.suggestion.suggestedContent,
       suggestedSource: data.suggestion.suggestedSource,
-    });
+      strategy: 'ai',
+    }));
   }, [allCategories, categoryTree, filingFallbackTimeoutMs, getAiAssistEndpoint]);
 
   const requestCaptureStructuring = useCallback(async (
-    capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>,
-    localDraft: LocalCaptureDraftLike
+    capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>
   ): Promise<CaptureStructuringResult | null> => {
     if (!capture.title.trim() && !capture.content.trim()) {
       Alert.alert('Add A Capture First', 'This inbox item needs some text before AI can structure it.');
       return null;
     }
 
-    if (!localDraft.shouldUseAi) {
-      return localDraft.result;
-    }
-
+    const minimalDraft = buildMinimalCaptureStructuringDraft(capture);
     const endpoint = getCaptureStructuringEndpoint();
-    const payload = buildCapturePayload(capture, localDraft.result);
+    const payload = buildCapturePayload(capture, minimalDraft, {
+      existingCards: buildExistingCardSummariesForEnrichment(getCards()),
+    });
     const cacheKey = buildAiRequestCacheKey(endpoint, payload);
     const cachedResult = captureStructuringCacheRef.current.get(cacheKey);
     if (cachedResult) {
@@ -127,7 +127,10 @@ export const useCaptureStructuring = ({
             throw new Error(data.error || 'The AI assistant did not return structured card fields.');
           }
 
-          return mergeCaptureStructuring(localDraft.result, data.result);
+          return restrainStructuringToCapture(capture, {
+            ...data.result,
+            strategy: data.result.strategy ?? 'ai',
+          });
         })().finally(() => {
           captureStructuringInFlightRef.current.delete(cacheKey);
         });
@@ -139,9 +142,9 @@ export const useCaptureStructuring = ({
       rememberCachedAiValue(captureStructuringCacheRef.current, cacheKey, structuredResult);
       return structuredResult;
     } catch {
-      return localDraft.result;
+      return restrainStructuringToCapture(capture, minimalDraft);
     }
-  }, [captureTimeoutMs, getCaptureStructuringEndpoint, requestCaptureStructuringFallback]);
+  }, [captureTimeoutMs, getCaptureStructuringEndpoint, getCards, requestCaptureStructuringFallback]);
 
   return {
     requestCaptureStructuring,

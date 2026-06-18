@@ -23,6 +23,12 @@ export interface CardSource {
   note?: string;
 }
 
+export interface InboxCaptureEnrichment {
+  structuredDraft: CaptureStructuringResult;
+  enrichedAt: string;
+  jobId: string;
+}
+
 export interface InboxCapture {
   id: string;
   title: string;
@@ -30,6 +36,98 @@ export interface InboxCapture {
   sourceText?: string;
   createdAt: string;
   intendedType?: 'card' | 'todo';
+  enrichment?: InboxCaptureEnrichment;
+}
+
+export type CaptureRoute = 'card' | 'todo';
+
+export type CaptureJobStatus =
+  | 'pending'
+  | 'classifying'
+  | 'awaiting_clarification'
+  | 'enriching'
+  | 'generating_todos'
+  | 'completed'
+  | 'failed';
+
+export interface CaptureClassificationAlternative {
+  route: CaptureRoute;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface CaptureClassificationResult {
+  route: CaptureRoute;
+  confidence: number;
+  confidenceBand: AiDecisionConfidenceBand;
+  reasoning: string;
+  alternatives?: CaptureClassificationAlternative[];
+  needsClarification: boolean;
+  clarificationPrompt?: string;
+}
+
+export interface CaptureClassifyLocalSignals {
+  bulletLineCount: number;
+  numberedLineCount: number;
+  hasSourceCues: boolean;
+  looksLikeQuote: boolean;
+}
+
+export interface CaptureClassifyHints {
+  userOverride?: CaptureRoute | null;
+  localSignals: CaptureClassifyLocalSignals;
+}
+
+export interface CaptureClassifyPayload {
+  capture: Pick<InboxCapture, 'id' | 'title' | 'content' | 'sourceText' | 'createdAt'>;
+  hints: CaptureClassifyHints;
+}
+
+export interface TodoGenerationDraft {
+  clientId: string;
+  title: string;
+  content?: string;
+  parentClientId?: string | null;
+  sortOrder: number;
+  dueDate?: string;
+  relatedAddresses?: string[];
+}
+
+export interface TodoGenerationResult {
+  todos: TodoGenerationDraft[];
+  corrections?: string[];
+  confidence?: number;
+  confidenceBand?: AiDecisionConfidenceBand;
+  strategy?: 'local' | 'ai' | 'merged';
+}
+
+export interface CaptureGenerateTodosPayload {
+  capture: Pick<InboxCapture, 'id' | 'title' | 'content' | 'sourceText' | 'createdAt'>;
+  localDraft: {
+    todos: TodoGenerationDraft[];
+    strategy: 'local';
+  };
+  context?: {
+    existingCardAddresses?: string[];
+  };
+}
+
+export interface CaptureEnrichPayload {
+  capture: Pick<InboxCapture, 'id' | 'title' | 'content' | 'sourceText' | 'createdAt'>;
+  localDraft: CaptureStructuringResult;
+}
+
+export interface CaptureJob {
+  id: string;
+  captureId: string;
+  status: CaptureJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  userRouteOverride?: CaptureRoute;
+  classification?: CaptureClassificationResult;
+  enrichment?: CaptureStructuringResult;
+  todoGeneration?: TodoGenerationResult;
+  error?: string;
 }
 
 export interface Todo {

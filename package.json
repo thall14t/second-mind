@@ -7,6 +7,7 @@
     "ai-server": "node server/index.js",
     "test:ai-filing": "node scripts/run-ai-filing-regression.js",
     "test:todo-utils": "node scripts/run-todo-utils-tests.js",
+    "test:capture-jobs": "node scripts/run-capture-jobs-tests.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"

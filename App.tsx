@@ -25,6 +25,7 @@ import ThinkingScreen from './components/ThinkingScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useAiFiling } from './hooks/useAiFiling';
 import { useCaptureStructuring } from './hooks/useCaptureStructuring';
+import { useCaptureJobs } from './hooks/useCaptureJobs';
 import { styles } from './styles';
 import {
   AiAssistPayload,
@@ -72,6 +73,7 @@ import {
   validateCategoryAddress,
 } from './utils/antinet';
 import { parseTodosFromCapture } from './utils/todoParsing';
+import { pruneCaptureJobs } from './utils/captureJobs';
 import { normalizeTodoDueDateInput } from './utils/todoDates';
 import {
   collectDescendantIds,
@@ -95,6 +97,7 @@ import {
   saveCardsToFile,
   saveInboxCapturesToFile,
   saveTodosToFile,
+  saveCaptureJobsToFile,
   saveCustomCategoriesToFile,
   saveCategoryOverridesToFile,
   saveDeletedDefaultCategoryIdsToFile,
@@ -154,6 +157,7 @@ export default function App() {
     cards, setCards,
     inboxCaptures, setInboxCaptures,
     todos, setTodos,
+    captureJobs, setCaptureJobs,
     customCategories, setCustomCategories,
     categoryOverrides, setCategoryOverrides,
     deletedDefaultCategoryIds, setDeletedDefaultCategoryIds,
@@ -221,6 +225,7 @@ export default function App() {
     setCards(data.cards.map(normalizeCard));
     setInboxCaptures(data.inboxCaptures);
     setTodos(ensureTodoSortOrders(data.todos));
+    setCaptureJobs(pruneCaptureJobs(data.captureJobs ?? [], data.inboxCaptures));
     setCustomCategories(data.customCategories);
     setCategoryOverrides(data.overrides);
     setDeletedDefaultCategoryIds(data.deletedIds);
@@ -240,6 +245,11 @@ export default function App() {
   const saveTodos = async (updatedTodos: Todo[]) => {
     await saveTodosToFile(updatedTodos);
     setTodos(updatedTodos);
+  };
+
+  const saveCaptureJobs = async (updatedJobs: typeof captureJobs) => {
+    await saveCaptureJobsToFile(updatedJobs);
+    setCaptureJobs(updatedJobs);
   };
 
   const saveCustomCategories = async (updatedCategories: CustomCategory[]) => {
@@ -272,7 +282,8 @@ export default function App() {
         data.overrides,
         data.deletedIds,
         data.settings,
-        data.todos
+        data.todos,
+        data.captureJobs ?? []
       );
 
       const now = new Date();
@@ -328,6 +339,7 @@ export default function App() {
                 cards = [],
                 inboxCaptures = [],
                 todos: backupTodos = [],
+                captureJobs: backupCaptureJobs = [],
                 customCategories = [],
                 categoryOverrides = [],
                 deletedDefaultCategoryIds = [],
@@ -340,6 +352,7 @@ export default function App() {
                 saveCardsToFile(normalizedCards),
                 saveInboxCapturesToFile(inboxCaptures ?? []),
                 saveTodosToFile(backupTodos ?? []),
+                saveCaptureJobsToFile(backupCaptureJobs ?? []),
                 saveCustomCategoriesToFile(customCategories ?? []),
                 saveCategoryOverridesToFile(categoryOverrides ?? []),
                 saveDeletedDefaultCategoryIdsToFile(deletedDefaultCategoryIds ?? []),
@@ -349,6 +362,7 @@ export default function App() {
               setCards(normalizedCards);
               setInboxCaptures(inboxCaptures ?? []);
               setTodos(ensureTodoSortOrders(backupTodos ?? []));
+              setCaptureJobs(pruneCaptureJobs(backupCaptureJobs ?? [], inboxCaptures ?? []));
               setCustomCategories(customCategories ?? []);
               setCategoryOverrides(categoryOverrides ?? []);
               setDeletedDefaultCategoryIds(deletedDefaultCategoryIds ?? []);
@@ -763,6 +777,12 @@ export default function App() {
     setThinkingState,
     clearAiProgress,
     timeoutMs: FILING_SUGGESTION_TIMEOUT_MS,
+  });
+
+  useCaptureJobs({
+    jobs: captureJobs,
+    saveCaptureJobs,
+    inboxCaptures,
   });
 
   const {

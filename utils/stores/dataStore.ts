@@ -6,12 +6,14 @@ import {
   CategoryOverride,
   AppSettings,
   Todo,
+  CaptureJob,
 } from '../../types';
 
 interface DataState {
   cards: Card[];
   inboxCaptures: InboxCapture[];
   todos: Todo[];
+  captureJobs: CaptureJob[];
   customCategories: CustomCategory[];
   categoryOverrides: CategoryOverride[];
   deletedDefaultCategoryIds: string[];
@@ -28,6 +30,7 @@ interface DataState {
   setCards: (cards: Card[]) => void;
   setInboxCaptures: (captures: InboxCapture[]) => void;
   setTodos: (todos: Todo[]) => void;
+  setCaptureJobs: (jobs: CaptureJob[]) => void;
   setCustomCategories: (categories: CustomCategory[]) => void;
   setCategoryOverrides: (overrides: CategoryOverride[]) => void;
   setDeletedDefaultCategoryIds: (ids: string[]) => void;
@@ -48,6 +51,7 @@ export const useDataStore = create<DataState>((set, get) => ({
   cards: [],
   inboxCaptures: [],
   todos: [],
+  captureJobs: [],
   customCategories: [],
   categoryOverrides: [],
   deletedDefaultCategoryIds: [],
@@ -64,6 +68,7 @@ export const useDataStore = create<DataState>((set, get) => ({
   setCards: (cards) => set({ cards }),
   setInboxCaptures: (inboxCaptures) => set({ inboxCaptures }),
   setTodos: (todos) => set({ todos }),
+  setCaptureJobs: (captureJobs) => set({ captureJobs }),
   setCustomCategories: (customCategories) => set({ customCategories }),
   setCategoryOverrides: (categoryOverrides) => set({ categoryOverrides }),
   setDeletedDefaultCategoryIds: (deletedDefaultCategoryIds) => set({ deletedDefaultCategoryIds }),

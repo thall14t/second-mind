@@ -7,6 +7,7 @@ import {
   CategoryOverride,
   AppSettings,
   Todo,
+  CaptureJob,
 } from '../types';
 
 export const DATA_VERSION = 1;
@@ -14,6 +15,7 @@ export const DATA_VERSION = 1;
 export const CARDS_FILE = FileSystem.documentDirectory + 'antinetCards.json';
 export const INBOX_FILE = FileSystem.documentDirectory + 'secondMindInboxCaptures.json';
 export const TODOS_FILE = FileSystem.documentDirectory + 'secondMindTodos.json';
+export const CAPTURE_JOBS_FILE = FileSystem.documentDirectory + 'secondMindCaptureJobs.json';
 export const CUSTOM_CATEGORIES_FILE = FileSystem.documentDirectory + 'antinetCustomCategories.json';
 export const CATEGORY_OVERRIDES_FILE = FileSystem.documentDirectory + 'antinetCategoryOverrides.json';
 export const DELETED_DEFAULT_CATEGORIES_FILE = FileSystem.documentDirectory + 'antinetDeletedDefaultCategories.json';
@@ -50,6 +52,10 @@ export const saveInboxCapturesToFile = async (captures: InboxCapture[]) => {
 
 export const saveTodosToFile = async (todos: Todo[]) => {
   await saveJsonFile(TODOS_FILE, todos);
+};
+
+export const saveCaptureJobsToFile = async (jobs: CaptureJob[]) => {
+  await saveJsonFile(CAPTURE_JOBS_FILE, jobs);
 };
 
 export const saveCustomCategoriesToFile = async (categories: CustomCategory[]) => {
@@ -97,7 +103,8 @@ export const createBackupData = (
   categoryOverrides: CategoryOverride[],
   deletedDefaultCategoryIds: string[],
   settings: AppSettings,
-  todos: Todo[] = []
+  todos: Todo[] = [],
+  captureJobs: CaptureJob[] = []
 ) => ({
   version: DATA_VERSION,
   exportedAt: new Date().toISOString(),
@@ -108,6 +115,7 @@ export const createBackupData = (
   deletedDefaultCategoryIds,
   settings,
   todos,
+  captureJobs,
 });
 
 export const migrateDataIfNeeded = (data: any) => {
@@ -125,14 +133,15 @@ export const migrateDataIfNeeded = (data: any) => {
 // Current: JSON files via FileSystem for simplicity and to keep card history "immutable".
 
 export const loadAllData = async () => {
-  const [cards, inboxCaptures, todos, customCategories, overrides, deletedIds, settings] = await Promise.all([
+  const [cards, inboxCaptures, todos, captureJobs, customCategories, overrides, deletedIds, settings] = await Promise.all([
     loadJsonFile<Card[]>(CARDS_FILE, []),
     loadJsonFile<InboxCapture[]>(INBOX_FILE, []),
     loadJsonFile<Todo[]>(TODOS_FILE, []),
+    loadJsonFile<CaptureJob[]>(CAPTURE_JOBS_FILE, []),
     loadJsonFile<CustomCategory[]>(CUSTOM_CATEGORIES_FILE, []),
     loadJsonFile<CategoryOverride[]>(CATEGORY_OVERRIDES_FILE, []),
     loadJsonFile<string[]>(DELETED_DEFAULT_CATEGORIES_FILE, []),
     loadJsonFile<AppSettings>(SETTINGS_FILE, { darkMode: false }),
   ]);
-  return { cards, inboxCaptures, todos, customCategories, overrides, deletedIds, settings };
+  return { cards, inboxCaptures, todos, captureJobs, customCategories, overrides, deletedIds, settings };
 };

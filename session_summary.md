@@ -505,7 +505,7 @@ Open questions are resolved (see "Open Questions — Resolved" in the Phase 1 pl
 **Immediate next action**:
 On `feature/phase-a-routing`, continue **Phase A — Unified AI Capture Routing**:
 1. [x] **A1** (2026-06-18): `docs/second-mind-capture-routing-contract.md` — classify → enrich-card OR generate-todos contract.
-2. **A2**: Capture job types + `useCaptureJobs` hook.
+2. [x] **A2** (2026-06-18): Capture job types, `utils/captureJobs.ts`, `useCaptureJobs` hook, `secondMindCaptureJobs.json` persistence.
 3. **A3**: Server endpoints (`classify-capture`, `enrich-card-capture`, `generate-todos`).
 4. **A4–A8**: Quick Capture single-submit, Home processing indicator, inbox prefilled draft, auto-todo creation, clarifying modal.
 

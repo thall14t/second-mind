@@ -36,6 +36,7 @@ export function parseTodosFromCapture(title: string, content: string): Todo[] {
       title: todoTitle,
       content: todoContent,
       completed: false,
+      sortOrder: 0,
       createdAt,
     }];
   }
@@ -50,6 +51,7 @@ export function parseTodosFromCapture(title: string, content: string): Todo[] {
     title: parentTitle,
     content: parentContent,
     completed: false,
+    sortOrder: 0,
     createdAt,
   };
 
@@ -58,6 +60,7 @@ export function parseTodosFromCapture(title: string, content: string): Todo[] {
     title: subTitle,
     completed: false,
     parentId: baseId,
+    sortOrder: index,
     createdAt,
   }));
 

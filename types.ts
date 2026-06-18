@@ -38,6 +38,7 @@ export interface Todo {
   content?: string;
   completed: boolean;
   parentId?: string;
+  sortOrder: number;
   createdAt: string;
   relatedAddresses?: string[];
 }

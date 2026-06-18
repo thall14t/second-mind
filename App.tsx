@@ -72,6 +72,12 @@ import {
 } from './utils/antinet';
 import { parseTodosFromCapture } from './utils/todoParsing';
 import {
+  collectDescendantIds,
+  ensureTodoSortOrders,
+  getNextSortOrder,
+  moveTodoAmongSiblings,
+} from './utils/todoTree';
+import {
   CARDS_FILE,
   INBOX_FILE,
   CUSTOM_CATEGORIES_FILE,
@@ -208,7 +214,7 @@ export default function App() {
     data = migrateDataIfNeeded(data);
     setCards(data.cards.map(normalizeCard));
     setInboxCaptures(data.inboxCaptures);
-    setTodos(data.todos);
+    setTodos(ensureTodoSortOrders(data.todos));
     setCustomCategories(data.customCategories);
     setCategoryOverrides(data.overrides);
     setDeletedDefaultCategoryIds(data.deletedIds);
@@ -336,7 +342,7 @@ export default function App() {
 
               setCards(normalizedCards);
               setInboxCaptures(inboxCaptures ?? []);
-              setTodos(backupTodos ?? []);
+              setTodos(ensureTodoSortOrders(backupTodos ?? []));
               setCustomCategories(customCategories ?? []);
               setCategoryOverrides(categoryOverrides ?? []);
               setDeletedDefaultCategoryIds(deletedDefaultCategoryIds ?? []);
@@ -1414,7 +1420,8 @@ export default function App() {
   };
 
   const deleteTodo = async (todoId: string) => {
-    const updatedTodos = todos.filter(todo => todo.id !== todoId && todo.parentId !== todoId);
+    const idsToDelete = collectDescendantIds(todos, todoId);
+    const updatedTodos = todos.filter(todo => !idsToDelete.has(todo.id));
     await saveTodos(updatedTodos);
   };
 
@@ -1424,9 +1431,40 @@ export default function App() {
       title: 'New sub-task',
       completed: false,
       parentId,
+      sortOrder: getNextSortOrder(todos, parentId),
       createdAt: new Date().toISOString(),
     };
     await saveTodos([newSubTodo, ...todos]);
+  };
+
+  const updateTodo = async (
+    todoId: string,
+    updates: { title: string; content?: string }
+  ) => {
+    const trimmedTitle = updates.title.trim();
+    if (!trimmedTitle) {
+      Alert.alert('Title Required', 'Give this task a title before saving.');
+      return;
+    }
+
+    const updatedTodos = todos.map(todo =>
+      todo.id === todoId
+        ? {
+            ...todo,
+            title: trimmedTitle,
+            content: updates.content?.trim() ? updates.content.trim() : undefined,
+          }
+        : todo
+    );
+    await saveTodos(updatedTodos);
+  };
+
+  const moveTodo = async (todoId: string, direction: 'up' | 'down') => {
+    const updatedTodos = moveTodoAmongSiblings(todos, todoId, direction);
+    if (updatedTodos === todos) {
+      return;
+    }
+    await saveTodos(updatedTodos);
   };
 
   const openCardFromList = (card: Card) => {
@@ -1883,6 +1921,8 @@ export default function App() {
       onToggleTodo={toggleTodo}
       onDeleteTodo={deleteTodo}
       onAddSubTodo={addSubTodo}
+      onUpdateTodo={updateTodo}
+      onMoveTodo={moveTodo}
       onBack={() => setCurrentScreen('home')}
     />
   );

@@ -13,6 +13,8 @@ import {
   buildClassificationLocalSignals,
   buildLocalClassificationFallback,
   buildLocalTodoGenerationResult,
+  buildUserOverrideClassification,
+  inferObviousCaptureRoute,
   mapTodoGenerationToTodos,
   mapTodosToGenerationDrafts,
 } from '../utils/captureJobs';
@@ -86,7 +88,16 @@ export const useCaptureRouting = ({
     capture: InboxCapture,
     userOverride?: 'card' | 'todo' | null
   ): Promise<CaptureClassificationResult> => {
+    if (userOverride === 'card' || userOverride === 'todo') {
+      return buildUserOverrideClassification(userOverride);
+    }
+
     const localSignals = buildClassificationLocalSignals(capture.title, capture.content);
+    const obvious = inferObviousCaptureRoute(capture.title, capture.content, localSignals);
+    if (obvious) {
+      return obvious;
+    }
+
     const payload = {
       capture: {
         id: capture.id,
@@ -133,7 +144,12 @@ export const useCaptureRouting = ({
       rememberCachedAiValue(classifyCacheRef.current, cacheKey, result);
       return result;
     } catch {
-      const fallback = buildLocalClassificationFallback(localSignals);
+      const fallback = buildLocalClassificationFallback(
+        capture.title,
+        capture.content,
+        localSignals,
+        userOverride
+      );
       rememberCachedAiValue(classifyCacheRef.current, cacheKey, fallback);
       return fallback;
     }
@@ -310,21 +326,26 @@ export const useCaptureRouting = ({
     options?: { userRouteOverride?: 'card' | 'todo' | null }
   ) => {
     try {
-      await captureJobsApi.setJobStatus(jobId, 'classifying');
-      const classification = await requestCaptureClassification(
-        capture,
-        options?.userRouteOverride ?? null
-      );
-      const updatedJob = await captureJobsApi.recordClassification(jobId, classification);
-      if (!updatedJob) {
-        return;
+      const userRouteOverride = options?.userRouteOverride ?? null;
+      let classification: CaptureClassificationResult;
+
+      if (userRouteOverride === 'card' || userRouteOverride === 'todo') {
+        classification = buildUserOverrideClassification(userRouteOverride);
+        await captureJobsApi.recordClassification(jobId, classification);
+      } else {
+        await captureJobsApi.setJobStatus(jobId, 'classifying');
+        classification = await requestCaptureClassification(capture, null);
+        const updatedJob = await captureJobsApi.recordClassification(jobId, classification);
+        if (!updatedJob) {
+          return;
+        }
+
+        if (classification.needsClarification) {
+          return;
+        }
       }
 
-      if (classification.needsClarification) {
-        return;
-      }
-
-      const route = options?.userRouteOverride ?? classification.route;
+      const route = userRouteOverride ?? classification.route;
       if (route === 'card') {
         await completeCardRoute(jobId, capture);
         return;

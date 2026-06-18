@@ -29,8 +29,18 @@ function runTests() {
     ],
   });
   assert.strictEqual(classified.confidenceBand, 'low');
-  assert.strictEqual(classified.needsClarification, true);
-  assert.ok(classified.clarificationPrompt);
+  assert.strictEqual(classified.needsClarification, false);
+  assert.strictEqual(classified.confidenceBand, 'low');
+
+  const needsPrompt = normalizeClassificationResult({
+    route: 'card',
+    confidence: 0.4,
+    reasoning: 'Unclear.',
+    needsClarification: true,
+    clarificationPrompt: 'Library or tasks?',
+  });
+  assert.strictEqual(needsPrompt.needsClarification, true);
+  assert.ok(needsPrompt.clarificationPrompt);
 
   const enriched = normalizeEnrichResult({
     suggestedTitle: 'Grace',

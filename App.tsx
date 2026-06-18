@@ -178,6 +178,7 @@ export default function App() {
   const [filingInboxCaptureId, setFilingInboxCaptureId] = useState<string | null>(null);
   const [clarificationModalJobId, setClarificationModalJobId] = useState<string | null>(null);
   const [dismissedClarificationJobIds, setDismissedClarificationJobIds] = useState<string[]>([]);
+  const [resolvingClarificationJobIds, setResolvingClarificationJobIds] = useState<string[]>([]);
   const [askCardsQuestion, setAskCardsQuestion] = useState('');
   const [askCardsResult, setAskCardsResult] = useState<AskCardsResult | null>(null);
   const [isAskingCards, setIsAskingCards] = useState(false);
@@ -1848,7 +1849,18 @@ export default function App() {
 
     const jobId = clarificationModalJobId;
     setClarificationModalJobId(null);
-    await resumeCaptureJob(jobId, route);
+    setResolvingClarificationJobIds(previous => (
+      previous.includes(jobId) ? previous : [...previous, jobId]
+    ));
+    setDismissedClarificationJobIds(previous => (
+      previous.includes(jobId) ? previous : [...previous, jobId]
+    ));
+
+    try {
+      await resumeCaptureJob(jobId, route);
+    } finally {
+      setResolvingClarificationJobIds(previous => previous.filter(id => id !== jobId));
+    }
   }, [clarificationModalJobId, resumeCaptureJob]);
 
   const handleDismissClarification = useCallback(() => {
@@ -1881,11 +1893,12 @@ export default function App() {
 
     const nextJob = clarificationJobs.find(
       job => !dismissedClarificationJobIds.includes(job.jobId)
+        && !resolvingClarificationJobIds.includes(job.jobId)
     );
     if (nextJob) {
       setClarificationModalJobId(nextJob.jobId);
     }
-  }, [clarificationJobs, clarificationModalJobId, currentScreen, dismissedClarificationJobIds]);
+  }, [clarificationJobs, clarificationModalJobId, currentScreen, dismissedClarificationJobIds, resolvingClarificationJobIds]);
 
   const renderHomeScreen = () => (
     <HomeScreen

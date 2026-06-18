@@ -51,6 +51,8 @@ function loadModules() {
     upsertCaptureJob,
     applyEnrichmentToCapture,
     buildLocalClassificationFallback,
+    inferObviousCaptureRoute,
+    buildUserOverrideClassification,
     buildCaptureProcessingJobViews,
     buildCaptureProcessingLabel,
     getCaptureJobStatusLabel,
@@ -66,6 +68,8 @@ function loadModules() {
   return {
     buildClassificationLocalSignals,
     buildLocalClassificationFallback,
+    inferObviousCaptureRoute,
+    buildUserOverrideClassification,
     buildCaptureProcessingJobViews,
     buildCaptureProcessingLabel,
     getCaptureJobStatusLabel,
@@ -98,6 +102,8 @@ function runTests() {
     upsertCaptureJob,
     applyEnrichmentToCapture,
     buildLocalClassificationFallback,
+    inferObviousCaptureRoute,
+    buildUserOverrideClassification,
     buildCaptureProcessingJobViews,
     buildCaptureProcessingLabel,
     getCaptureJobStatusLabel,
@@ -151,20 +157,28 @@ function runTests() {
   const upserted = upsertCaptureJob([], job);
   assert.strictEqual(upserted.length, 1);
 
-  const todoFallback = buildLocalClassificationFallback({
-    bulletLineCount: 2,
-    numberedLineCount: 1,
-    hasSourceCues: false,
-    looksLikeQuote: false,
-  });
+  const todoFallback = buildLocalClassificationFallback(
+    'Errands',
+    '- milk\n- eggs\n1. bread',
+    { bulletLineCount: 2, numberedLineCount: 1, hasSourceCues: false, looksLikeQuote: false }
+  );
   assert.strictEqual(todoFallback.route, 'todo');
 
-  const clarifyFallback = buildLocalClassificationFallback({
-    bulletLineCount: 0,
-    numberedLineCount: 0,
-    hasSourceCues: false,
-    looksLikeQuote: false,
-  });
+  const callTask = inferObviousCaptureRoute(
+    '',
+    'Call dentist to reschedule',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
+  assert.strictEqual(callTask?.route, 'todo');
+
+  const override = buildUserOverrideClassification('todo');
+  assert.strictEqual(override.needsClarification, false);
+
+  const clarifyFallback = buildLocalClassificationFallback(
+    '',
+    'maybe',
+    { bulletLineCount: 0, numberedLineCount: 0, hasSourceCues: false, looksLikeQuote: false }
+  );
   assert.strictEqual(clarifyFallback.needsClarification, true);
 
   assert.strictEqual(buildCaptureProcessingLabel(2), 'Processing 2 captures');

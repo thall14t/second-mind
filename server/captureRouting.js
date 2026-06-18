@@ -172,7 +172,7 @@ function normalizeClassificationResult(raw) {
   const route = raw?.route === 'todo' ? 'todo' : 'card';
   const confidence = Math.max(0, Math.min(1, Number(raw?.confidence ?? 0)));
   const confidenceBand = toConfidenceBand(confidence);
-  const needsClarification = Boolean(raw?.needsClarification) || confidenceBand === 'low';
+  const needsClarification = Boolean(raw?.needsClarification);
 
   return {
     route,

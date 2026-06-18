@@ -15,6 +15,9 @@ import {
 const BULLET_LINE_PATTERN = /^([-*•]|\d+[.)])\s+/;
 const SOURCE_CUE_PATTERN = /(https?:\/\/|www\.|page\s+\d|chapter\s+\d|—\s*[A-Z]|"\s*—|said\s+|according\s+to)/i;
 const QUOTE_PATTERN = /^["'“‘].+["'”’]$/;
+const TASK_VERB_PATTERN = /^(call|email|e-mail|text|buy|pick up|schedule|finish|send|pay|return|get|grab|water|mail|submit|review|fix|add|remind|pack|clean|organize)\b/i;
+const IDEA_PATTERN = /\b(book idea|article idea|story idea|sermon idea|chapter idea|essay idea)\b/i;
+const TASK_LIST_TITLE_PATTERN = /^(todo|tasks|errands|checklist|shopping list|grocery list)\b/i;
 
 export const CAPTURE_JOB_PROCESSING_STATUSES: CaptureJobStatus[] = [
   'pending',
@@ -30,17 +33,37 @@ export const CAPTURE_JOB_TERMINAL_STATUSES: CaptureJobStatus[] = [
 
 export const MAX_CAPTURE_JOBS = 100;
 
-export function buildLocalClassificationFallback(
-  localSignals: CaptureClassifyLocalSignals
-): CaptureClassificationResult {
-  const listLineCount = localSignals.bulletLineCount + localSignals.numberedLineCount;
+export function buildUserOverrideClassification(route: CaptureRoute): CaptureClassificationResult {
+  return {
+    route,
+    confidence: 1,
+    confidenceBand: 'high',
+    reasoning: 'User chose the capture route after clarification.',
+    needsClarification: false,
+  };
+}
 
-  if (listLineCount >= 2) {
+export function inferObviousCaptureRoute(
+  title: string,
+  content: string,
+  localSignals: CaptureClassifyLocalSignals
+): CaptureClassificationResult | null {
+  const trimmedTitle = title.trim();
+  const trimmedContent = content.trim();
+  const lines = trimmedContent.split('\n').map(line => line.trim()).filter(Boolean);
+  const listLineCount = localSignals.bulletLineCount + localSignals.numberedLineCount;
+  const combined = `${trimmedTitle}\n${trimmedContent}`.trim();
+
+  if (!combined) {
+    return null;
+  }
+
+  if (IDEA_PATTERN.test(combined)) {
     return {
-      route: 'todo',
-      confidence: 0.45,
-      confidenceBand: 'low',
-      reasoning: 'Multiple bullet or numbered lines suggest a task list.',
+      route: 'card',
+      confidence: 0.88,
+      confidenceBand: 'high',
+      reasoning: 'Creative idea seed language suggests a library note.',
       needsClarification: false,
     };
   }
@@ -48,11 +71,90 @@ export function buildLocalClassificationFallback(
   if (localSignals.hasSourceCues || localSignals.looksLikeQuote) {
     return {
       route: 'card',
-      confidence: 0.45,
-      confidenceBand: 'low',
-      reasoning: 'Source cues or quote formatting suggest a library note.',
+      confidence: 0.85,
+      confidenceBand: 'high',
+      reasoning: 'Source or quote cues suggest a library note.',
       needsClarification: false,
     };
+  }
+
+  if (listLineCount >= 2 || TASK_LIST_TITLE_PATTERN.test(trimmedTitle)) {
+    return {
+      route: 'todo',
+      confidence: 0.85,
+      confidenceBand: 'high',
+      reasoning: 'Structured task list formatting detected.',
+      needsClarification: false,
+    };
+  }
+
+  if (listLineCount === 1) {
+    return {
+      route: 'todo',
+      confidence: 0.78,
+      confidenceBand: 'medium',
+      reasoning: 'A single bullet or numbered line suggests one actionable task.',
+      needsClarification: false,
+    };
+  }
+
+  const primaryLine = lines[0] || trimmedTitle;
+  if (primaryLine && TASK_VERB_PATTERN.test(primaryLine)) {
+    return {
+      route: 'todo',
+      confidence: 0.82,
+      confidenceBand: 'high',
+      reasoning: 'Imperative task language detected.',
+      needsClarification: false,
+    };
+  }
+
+  if (trimmedTitle && !trimmedContent && TASK_VERB_PATTERN.test(trimmedTitle)) {
+    return {
+      route: 'todo',
+      confidence: 0.8,
+      confidenceBand: 'high',
+      reasoning: 'Short task-like title without body text.',
+      needsClarification: false,
+    };
+  }
+
+  if (listLineCount === 0 && trimmedContent.length >= 48 && !TASK_VERB_PATTERN.test(trimmedContent)) {
+    return {
+      route: 'card',
+      confidence: 0.75,
+      confidenceBand: 'medium',
+      reasoning: 'Prose note without checklist structure.',
+      needsClarification: false,
+    };
+  }
+
+  if (trimmedContent.endsWith('?') && listLineCount === 0) {
+    return {
+      route: 'card',
+      confidence: 0.72,
+      confidenceBand: 'medium',
+      reasoning: 'Open question notes are usually library material.',
+      needsClarification: false,
+    };
+  }
+
+  return null;
+}
+
+export function buildLocalClassificationFallback(
+  title: string,
+  content: string,
+  localSignals: CaptureClassifyLocalSignals,
+  userOverride?: CaptureRoute | null
+): CaptureClassificationResult {
+  if (userOverride === 'card' || userOverride === 'todo') {
+    return buildUserOverrideClassification(userOverride);
+  }
+
+  const obvious = inferObviousCaptureRoute(title, content, localSignals);
+  if (obvious) {
+    return obvious;
   }
 
   return {

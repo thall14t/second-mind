@@ -50,10 +50,12 @@ function loadModules() {
     pruneCaptureJobs,
     upsertCaptureJob,
     applyEnrichmentToCapture,
+    buildLocalClassificationFallback,
   } = require(path.join(buildDir, 'utils', 'captureJobs.js'));
 
   return {
     buildClassificationLocalSignals,
+    buildLocalClassificationFallback,
     createCaptureJob,
     getActiveProcessingJobs,
     mapTodoGenerationToTodos,
@@ -75,6 +77,7 @@ function runTests() {
     pruneCaptureJobs,
     upsertCaptureJob,
     applyEnrichmentToCapture,
+    buildLocalClassificationFallback,
   } = loadModules();
 
   const signals = buildClassificationLocalSignals('', '- buy milk\n- call dentist\n1. finish report');
@@ -117,6 +120,22 @@ function runTests() {
 
   const upserted = upsertCaptureJob([], job);
   assert.strictEqual(upserted.length, 1);
+
+  const todoFallback = buildLocalClassificationFallback({
+    bulletLineCount: 2,
+    numberedLineCount: 1,
+    hasSourceCues: false,
+    looksLikeQuote: false,
+  });
+  assert.strictEqual(todoFallback.route, 'todo');
+
+  const clarifyFallback = buildLocalClassificationFallback({
+    bulletLineCount: 0,
+    numberedLineCount: 0,
+    hasSourceCues: false,
+    looksLikeQuote: false,
+  });
+  assert.strictEqual(clarifyFallback.needsClarification, true);
 
   const enriched = applyEnrichmentToCapture(
     { id: 'cap-1', title: 'T', content: 'Body', createdAt: '2026-01-01T00:00:00.000Z' },

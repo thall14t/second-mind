@@ -507,7 +507,8 @@ On `feature/phase-a-routing`, continue **Phase A — Unified AI Capture Routing*
 1. [x] **A1** (2026-06-18): `docs/second-mind-capture-routing-contract.md` — classify → enrich-card OR generate-todos contract.
 2. [x] **A2** (2026-06-18): Capture job types, `utils/captureJobs.ts`, `useCaptureJobs` hook, `secondMindCaptureJobs.json` persistence.
 3. [x] **A3** (2026-06-18): Server endpoints `classify-capture`, `enrich-card-capture`, `generate-todos` in `server/captureRouting.js`.
-4. **A4–A8**: Quick Capture single-submit, Home processing indicator, inbox prefilled draft, auto-todo creation, clarifying modal.
+4. [x] **A4** (2026-06-18): Quick Capture single-submit, `useCaptureRouting` job pipeline (classify → enrich/generate).
+5. **A5–A8**: Home processing indicator, inbox prefilled draft, enriched inbox UI, clarifying modal.
 
 ---
 

@@ -1,4 +1,5 @@
 import {
+  CaptureClassificationResult,
   CaptureClassifyLocalSignals,
   CaptureJob,
   CaptureJobStatus,
@@ -28,6 +29,41 @@ export const CAPTURE_JOB_TERMINAL_STATUSES: CaptureJobStatus[] = [
 ];
 
 export const MAX_CAPTURE_JOBS = 100;
+
+export function buildLocalClassificationFallback(
+  localSignals: CaptureClassifyLocalSignals
+): CaptureClassificationResult {
+  const listLineCount = localSignals.bulletLineCount + localSignals.numberedLineCount;
+
+  if (listLineCount >= 2) {
+    return {
+      route: 'todo',
+      confidence: 0.45,
+      confidenceBand: 'low',
+      reasoning: 'Multiple bullet or numbered lines suggest a task list.',
+      needsClarification: false,
+    };
+  }
+
+  if (localSignals.hasSourceCues || localSignals.looksLikeQuote) {
+    return {
+      route: 'card',
+      confidence: 0.45,
+      confidenceBand: 'low',
+      reasoning: 'Source cues or quote formatting suggest a library note.',
+      needsClarification: false,
+    };
+  }
+
+  return {
+    route: 'card',
+    confidence: 0.3,
+    confidenceBand: 'low',
+    reasoning: 'The capture could be either a library note or a task list.',
+    needsClarification: true,
+    clarificationPrompt: 'Is this a note for your library or a task list?',
+  };
+}
 
 export function buildClassificationLocalSignals(title: string, content: string): CaptureClassifyLocalSignals {
   const lines = content

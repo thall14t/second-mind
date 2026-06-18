@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import { useDataStore } from '../utils/stores/dataStore';
 import {
   CaptureClassificationResult,
   CaptureJob,
@@ -40,36 +41,48 @@ export const useCaptureJobs = ({
     [jobs]
   );
 
+  const getCurrentJobs = useCallback(
+    () => useDataStore.getState().captureJobs,
+    []
+  );
+
+  const getCurrentInboxCaptures = useCallback(
+    () => useDataStore.getState().inboxCaptures,
+    []
+  );
+
   const persistJobs = useCallback(async (nextJobs: CaptureJob[]) => {
-    const pruned = pruneCaptureJobs(nextJobs, inboxCaptures);
+    const pruned = pruneCaptureJobs(nextJobs, getCurrentInboxCaptures());
     await saveCaptureJobs(pruned);
     return pruned;
-  }, [inboxCaptures, saveCaptureJobs]);
+  }, [getCurrentInboxCaptures, saveCaptureJobs]);
 
   const updateJob = useCallback(async (
     jobId: string,
     patch: Partial<CaptureJob>
   ): Promise<CaptureJob | null> => {
-    const existing = getCaptureJobById(jobs, jobId);
+    const currentJobs = getCurrentJobs();
+    const existing = getCaptureJobById(currentJobs, jobId);
     if (!existing) {
       return null;
     }
 
     const nextJob = touchCaptureJob(existing, patch);
-    await persistJobs(upsertCaptureJob(jobs, nextJob));
+    await persistJobs(upsertCaptureJob(currentJobs, nextJob));
     return nextJob;
-  }, [jobs, persistJobs]);
+  }, [getCurrentJobs, persistJobs]);
 
   const createJobForCapture = useCallback(async (captureId: string): Promise<CaptureJob> => {
-    const existing = getCaptureJobForCapture(jobs, captureId);
+    const currentJobs = getCurrentJobs();
+    const existing = getCaptureJobForCapture(currentJobs, captureId);
     if (existing && !['completed', 'failed'].includes(existing.status)) {
       return existing;
     }
 
     const job = createCaptureJob(captureId);
-    await persistJobs(upsertCaptureJob(jobs, job));
+    await persistJobs(upsertCaptureJob(currentJobs, job));
     return job;
-  }, [jobs, persistJobs]);
+  }, [getCurrentJobs, persistJobs]);
 
   const setJobStatus = useCallback(async (
     jobId: string,
@@ -149,6 +162,6 @@ export const useCaptureJobs = ({
     markJobCompleted,
     markJobFailed,
     applyUserRouteOverride,
-    pruneJobs: () => persistJobs(pruneCaptureJobs(jobs, inboxCaptures)),
+    pruneJobs: () => persistJobs(pruneCaptureJobs(getCurrentJobs(), getCurrentInboxCaptures())),
   };
 };

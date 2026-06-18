@@ -11,6 +11,7 @@ interface InboxScreenProps {
   onQuickCapture: () => void;
   onFileCapture: (capture: InboxCapture) => void;
   onFileCaptureWithAi: (capture: InboxCapture) => void;
+  onTurnIntoTodos: (capture: InboxCapture) => void;
   onDeleteCapture: (capture: InboxCapture) => void;
   onBack: () => void;
 }
@@ -21,6 +22,7 @@ export default function InboxScreen({
   onQuickCapture,
   onFileCapture,
   onFileCaptureWithAi,
+  onTurnIntoTodos,
   onDeleteCapture,
   onBack,
 }: InboxScreenProps) {
@@ -30,7 +32,7 @@ export default function InboxScreen({
     <View style={[styles.fullScreenView, { backgroundColor: theme.background }]}>
       <Text style={[styles.formTitle, { color: theme.text }]}>Capture Inbox</Text>
       <Text style={[styles.contextText, { color: theme.mutedText }]}>
-        Rough thoughts waiting to become real cards.
+        Rough thoughts waiting to become cards or todos.
       </Text>
 
       <TouchableOpacity style={[styles.secondaryButton, { backgroundColor: theme.secondaryBackground, borderWidth: 1, borderColor: theme.border }]} onPress={onQuickCapture}>
@@ -42,7 +44,16 @@ export default function InboxScreen({
       ) : (
         captures.map(capture => (
           <View key={capture.id} style={[styles.inboxCard, { backgroundColor: theme.cardBackground, borderColor: theme.border }]}>
-            <Text style={[styles.inboxMeta, { color: theme.mutedText }]}>{formatCardDate(capture.createdAt)}</Text>
+            <View style={styles.inboxMetaRow}>
+              <Text style={[styles.inboxMeta, { color: theme.mutedText }]}>{formatCardDate(capture.createdAt)}</Text>
+              {capture.intendedType ? (
+                <View style={[styles.inboxTypePill, { borderColor: theme.border, backgroundColor: theme.tertiaryBackground }]}>
+                  <Text style={[styles.inboxTypePillText, { color: theme.secondaryButtonText }]}>
+                    {capture.intendedType === 'todo' ? 'Todo' : 'Card'}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
             <Text style={[styles.inboxTitle, { color: theme.text }]}>{capture.title || 'Untitled capture'}</Text>
             <Text style={[styles.inboxPreview, { color: theme.text }]} numberOfLines={4}>{capture.content}</Text>
             {capture.sourceText && (
@@ -61,7 +72,18 @@ export default function InboxScreen({
               >
                 <Text style={[styles.inboxActionButtonText, { color: theme.primaryButtonText }]}>File With AI</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.inboxActionButton, { backgroundColor: theme.secondaryBackground, borderWidth: 1, borderColor: theme.border }]} onPress={() => onDeleteCapture(capture)}>
+            </View>
+            <View style={styles.inboxActionRow}>
+              <TouchableOpacity
+                style={[styles.inboxActionButton, { backgroundColor: theme.accentSoft, borderWidth: 1, borderColor: theme.border }]}
+                onPress={() => onTurnIntoTodos(capture)}
+              >
+                <Text style={[styles.inboxActionButtonText, { color: theme.secondaryButtonText }]}>Turn into Todo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.inboxActionButton, { backgroundColor: theme.secondaryBackground, borderWidth: 1, borderColor: theme.border }]}
+                onPress={() => onDeleteCapture(capture)}
+              >
                 <Text style={[styles.inboxActionButtonText, { color: theme.secondaryButtonText }]}>Delete</Text>
               </TouchableOpacity>
             </View>

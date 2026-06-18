@@ -94,6 +94,35 @@ export const collectDescendantIds = (todos: Todo[], rootId: string): Set<string>
   return ids;
 };
 
+const getEffectiveVisibleParentId = (
+  todo: Todo,
+  visibleIds: Set<string>,
+  todoById: Map<string, Todo>
+): string | undefined => {
+  let parentId = todo.parentId;
+
+  while (parentId && !visibleIds.has(parentId)) {
+    parentId = todoById.get(parentId)?.parentId;
+  }
+
+  return parentId;
+};
+
+export const getTodosForDisplay = (todos: Todo[], showCompleted: boolean): Todo[] => {
+  if (showCompleted) {
+    return todos;
+  }
+
+  const visibleTodos = todos.filter(todo => !todo.completed);
+  const visibleIds = new Set(visibleTodos.map(todo => todo.id));
+  const todoById = new Map(todos.map(todo => [todo.id, todo]));
+
+  return visibleTodos.map(todo => ({
+    ...todo,
+    parentId: getEffectiveVisibleParentId(todo, visibleIds, todoById),
+  }));
+};
+
 export const buildTodoTree = (todos: Todo[]): TodoTreeNode[] => {
   const byParent = new Map<string, Todo[]>();
 
@@ -154,19 +183,66 @@ export const moveTodoAmongSiblings = (
   });
 };
 
-export const flattenTodoTree = (todos: Todo[]): FlatTodoItem[] => {
+export const countDirectChildren = (
+  todos: Todo[],
+  parentId: string,
+  showCompleted = true
+): number =>
+  getTodosForDisplay(todos, showCompleted).filter(todo => todo.parentId === parentId).length;
+
+export const todoHasChildren = (
+  todos: Todo[],
+  todoId: string,
+  showCompleted = true
+): boolean => countDirectChildren(todos, todoId, showCompleted) > 0;
+
+export const flattenTodoTree = (
+  todos: Todo[],
+  showCompleted = true,
+  collapsedIds: ReadonlySet<string> = new Set()
+): FlatTodoItem[] => {
   const result: FlatTodoItem[] = [];
+  const displayTodos = getTodosForDisplay(todos, showCompleted);
 
   const walk = (nodes: TodoTreeNode[]) => {
     for (const node of nodes) {
       result.push({ todo: node.todo, depth: node.depth });
-      walk(node.children);
+      if (!collapsedIds.has(node.todo.id)) {
+        walk(node.children);
+      }
     }
   };
 
-  walk(buildTodoTree(todos));
+  walk(buildTodoTree(displayTodos));
   return result;
 };
+
+export const countSubtreeTodos = (
+  todos: Todo[],
+  todoId: string,
+  showCompleted = true
+): number => {
+  const flat = flattenTodoTree(todos, showCompleted);
+  const index = flat.findIndex(item => item.todo.id === todoId);
+  if (index < 0) {
+    return 0;
+  }
+
+  const rootDepth = flat[index].depth;
+  let count = 0;
+
+  for (let i = index + 1; i < flat.length; i++) {
+    if (flat[i].depth <= rootDepth) {
+      break;
+    }
+    count++;
+  }
+
+  return count;
+};
+
+export const countCompletedTodos = (todos: Todo[]): number =>
+  todos.filter(todo => todo.completed).length;
 
 export const clampFlatTodoDepths = (flat: FlatTodoItem[]): FlatTodoItem[] => {
   const result: FlatTodoItem[] = [];

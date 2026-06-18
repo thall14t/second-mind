@@ -84,15 +84,27 @@ export default function HomeScreen({
         <Text style={[styles.title, { color: theme.text }]}>{APP_NAME}</Text>
         <Text style={[styles.subtitle, { color: theme.mutedText }]}>{APP_TAGLINE}</Text>
         <View style={styles.homeStatRow}>
-          <View style={[styles.heroStatPill, { backgroundColor: theme.accentSoft }]}>
+          <TouchableOpacity
+            style={[styles.heroStatPill, { backgroundColor: theme.accentSoft, borderWidth: 1, borderColor: theme.border }]}
+            onPress={onViewCards}
+            activeOpacity={0.7}
+          >
             <Text style={[styles.heroStatText, { color: theme.secondaryButtonText }]}>Cards: {cardCount}</Text>
-          </View>
-          <View style={[styles.heroStatPill, { backgroundColor: theme.tertiaryBackground }]}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.heroStatPill, { backgroundColor: theme.tertiaryBackground, borderWidth: 1, borderColor: theme.border }]}
+            onPress={onOpenInbox}
+            activeOpacity={0.7}
+          >
             <Text style={[styles.heroStatText, { color: theme.secondaryButtonText }]}>Inbox: {inboxCount}</Text>
-          </View>
-          <View style={[styles.heroStatPill, { backgroundColor: theme.tertiaryBackground }]}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.heroStatPill, { backgroundColor: theme.tertiaryBackground, borderWidth: 1, borderColor: theme.border }]}
+            onPress={onOpenTodos}
+            activeOpacity={0.7}
+          >
             <Text style={[styles.heroStatText, { color: theme.secondaryButtonText }]}>Todos: {todoCount}</Text>
-          </View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -107,16 +119,6 @@ export default function HomeScreen({
         >
           <Text style={[styles.buttonText, { color: theme.primaryButtonText }]}>Quick Capture</Text>
           <Text style={[styles.homePrimaryMeta, { color: theme.primaryButtonText }]}>Catch the thought before it fades</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.homePrimaryButton,
-            { backgroundColor: theme.secondaryBackground, borderWidth: 1, borderColor: theme.border },
-          ]}
-          onPress={onViewCards}
-        >
-          <Text style={[styles.homePrimaryTitle, { color: theme.secondaryButtonText }]}>Library</Text>
-          <Text style={[styles.homePrimaryMeta, { color: theme.mutedText }]}>Open your file boxes and card stacks</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[
@@ -140,26 +142,6 @@ export default function HomeScreen({
         >
           <Text style={[styles.homeUtilityTitle, { color: theme.text }]}>+ New Card</Text>
           <Text style={[styles.homeUtilityMeta, { color: theme.mutedText }]}>Manual filing</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.homeUtilityTile,
-            { backgroundColor: theme.cardBackground, borderWidth: 1, borderColor: theme.border },
-          ]}
-          onPress={onOpenInbox}
-        >
-          <Text style={[styles.homeUtilityTitle, { color: theme.text }]}>Capture Inbox</Text>
-          <Text style={[styles.homeUtilityMeta, { color: theme.mutedText }]}>{inboxCount} waiting</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.homeUtilityTile,
-            { backgroundColor: theme.cardBackground, borderWidth: 1, borderColor: theme.border },
-          ]}
-          onPress={onOpenTodos}
-        >
-          <Text style={[styles.homeUtilityTitle, { color: theme.text }]}>View Todos</Text>
-          <Text style={[styles.homeUtilityMeta, { color: theme.mutedText }]}>{todoCount} open</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[

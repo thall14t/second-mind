@@ -1,20 +1,31 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import { styles } from '../styles';
 import { getTheme } from '../theme';
 import { Todo } from '../types';
-import { formatTodoDueDate } from '../utils/todoDates';
+import { normalizeTodoDueDateInput } from '../utils/todoDates';
+
 import {
   canIndentTodo,
   canOutdentTodo,
+  collectDescendantIds,
+  countCompletedTodos,
+  countSubtreeTodos,
   FlatTodoItem,
   flattenTodoTree,
+  todoHasChildren,
 } from '../utils/todoTree';
+
+const TODO_NEST_STEP = 10;
+const TODO_MAX_NEST_GUIDES = 5;
+const AUTO_SAVE_DELAY_MS = 600;
+const COLLAPSE_SAVE_DELAY_MS = 300;
 
 interface TodoListScreenProps {
   darkMode: boolean;
   todos: Todo[];
+  collapsedTodoIds: string[];
   onToggleTodo: (todoId: string) => void;
   onDeleteTodo: (todoId: string) => void;
   onAddSubTodo: (parentId: string) => void;
@@ -25,8 +36,10 @@ interface TodoListScreenProps {
       content?: string;
       relatedAddressesText?: string;
       dueDate?: string;
-    }
-  ) => void | Promise<void>;
+    },
+    options?: { quiet?: boolean }
+  ) => boolean | Promise<boolean>;
+  onCollapsedTodoIdsChange: (collapsedTodoIds: string[]) => void | Promise<void>;
   onReorderTodos: (flat: FlatTodoItem[], from: number, to: number) => void | Promise<void>;
   onIndentTodo: (todoId: string) => void | Promise<void>;
   onOutdentTodo: (todoId: string) => void | Promise<void>;
@@ -37,10 +50,12 @@ interface TodoListScreenProps {
 export default function TodoListScreen({
   darkMode,
   todos,
+  collapsedTodoIds,
   onToggleTodo,
   onDeleteTodo,
   onAddSubTodo,
   onUpdateTodo,
+  onCollapsedTodoIdsChange,
   onReorderTodos,
   onIndentTodo,
   onOutdentTodo,
@@ -48,13 +63,21 @@ export default function TodoListScreen({
   onBack,
 }: TodoListScreenProps) {
   const theme = getTheme(darkMode);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set(collapsedTodoIds));
+  const collapsePersistReadyRef = useRef(false);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editRelatedAddressesText, setEditRelatedAddressesText] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
 
-  const flatItems = useMemo(() => flattenTodoTree(todos), [todos]);
+  const completedCount = useMemo(() => countCompletedTodos(todos), [todos]);
+  const openCount = todos.length - completedCount;
+  const flatItems = useMemo(
+    () => flattenTodoTree(todos, showCompleted, collapsedIds),
+    [todos, showCompleted, collapsedIds]
+  );
   const [listData, setListData] = useState(flatItems);
   const editingTodo = editingTodoId ? todos.find(todo => todo.id === editingTodoId) ?? null : null;
 
@@ -63,7 +86,31 @@ export default function TodoListScreen({
   }, [flatItems]);
 
   useEffect(() => {
-    if (!editingTodo) {
+    setCollapsedIds(new Set(collapsedTodoIds));
+    collapsePersistReadyRef.current = false;
+  }, [collapsedTodoIds]);
+
+  useEffect(() => {
+    if (!collapsePersistReadyRef.current) {
+      collapsePersistReadyRef.current = true;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void onCollapsedTodoIdsChange([...collapsedIds]);
+    }, COLLAPSE_SAVE_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [collapsedIds, onCollapsedTodoIdsChange]);
+
+  useEffect(() => {
+    if (!showCompleted && editingTodo?.completed) {
+      setEditingTodoId(null);
+    }
+  }, [editingTodo, showCompleted]);
+
+  useEffect(() => {
+    if (!editingTodoId) {
       setEditTitle('');
       setEditContent('');
       setEditRelatedAddressesText('');
@@ -71,251 +118,431 @@ export default function TodoListScreen({
       return;
     }
 
-    setEditTitle(editingTodo.title);
-    setEditContent(editingTodo.content ?? '');
-    setEditRelatedAddressesText((editingTodo.relatedAddresses ?? []).join(', '));
-    setEditDueDate(editingTodo.dueDate ?? '');
-  }, [editingTodo]);
+    const todo = todos.find(item => item.id === editingTodoId);
+    if (!todo) {
+      return;
+    }
 
-  const startEditing = (todo: Todo) => {
-    setEditingTodoId(todo.id);
     setEditTitle(todo.title);
     setEditContent(todo.content ?? '');
     setEditRelatedAddressesText((todo.relatedAddresses ?? []).join(', '));
     setEditDueDate(todo.dueDate ?? '');
-  };
+  }, [editingTodoId]);
 
-  const cancelEditing = () => {
-    setEditingTodoId(null);
-  };
-
-  const saveEditing = async () => {
+  useEffect(() => {
     if (!editingTodoId) {
       return;
     }
 
-    await onUpdateTodo(editingTodoId, {
+    if (!todos.some(item => item.id === editingTodoId)) {
+      setEditingTodoId(null);
+    }
+  }, [editingTodoId, todos]);
+
+  const buildEditPayload = useCallback(
+    () => ({
       title: editTitle,
       content: editContent,
       relatedAddressesText: editRelatedAddressesText,
       dueDate: editDueDate,
-    });
-    cancelEditing();
+    }),
+    [editTitle, editContent, editRelatedAddressesText, editDueDate]
+  );
+
+  const isEditDirty = useCallback(
+    (todo: Todo) =>
+      editTitle !== todo.title ||
+      (editContent || '') !== (todo.content ?? '') ||
+      editRelatedAddressesText !== (todo.relatedAddresses ?? []).join(', ') ||
+      editDueDate !== (todo.dueDate ?? ''),
+    [editTitle, editContent, editRelatedAddressesText, editDueDate]
+  );
+
+  const canPersistEdit = useCallback(
+    (todo: Todo) => {
+      if (!editTitle.trim()) {
+        return false;
+      }
+
+      if (editDueDate.trim() && !normalizeTodoDueDateInput(editDueDate)) {
+        return false;
+      }
+
+      return isEditDirty(todo);
+    },
+    [editDueDate, editTitle, isEditDirty]
+  );
+
+  const persistEditing = useCallback(
+    async (todoId?: string) => {
+      const id = todoId ?? editingTodoId;
+      if (!id) {
+        return false;
+      }
+
+      const todo = todos.find(item => item.id === id);
+      if (!todo || !canPersistEdit(todo)) {
+        return false;
+      }
+
+      return onUpdateTodo(id, buildEditPayload(), { quiet: true });
+    },
+    [buildEditPayload, canPersistEdit, editingTodoId, onUpdateTodo, todos]
+  );
+
+  const collapseEditing = () => {
+    setEditingTodoId(null);
   };
 
-  const renderEditPanel = () => {
-    if (!editingTodo) {
+  const openEditing = (todo: Todo) => {
+    setEditingTodoId(todo.id);
+  };
+
+  const flushAndCollapseEditing = async () => {
+    await persistEditing();
+    collapseEditing();
+  };
+
+  const handleBack = async () => {
+    await persistEditing();
+    onBack();
+  };
+
+  const toggleEditing = (todo: Todo) => {
+    if (editingTodoId === todo.id) {
+      void flushAndCollapseEditing();
+      return;
+    }
+
+    void (async () => {
+      await persistEditing();
+      openEditing(todo);
+    })();
+  };
+
+  const toggleSubtree = (todoId: string) => {
+    setCollapsedIds(current => {
+      const next = new Set(current);
+      const willCollapse = !next.has(todoId);
+
+      if (willCollapse) {
+        next.add(todoId);
+        if (editingTodoId) {
+          const hiddenIds = collectDescendantIds(todos, todoId);
+          if (hiddenIds.has(editingTodoId)) {
+            void persistEditing(editingTodoId);
+            setEditingTodoId(null);
+          }
+        }
+      } else {
+        next.delete(todoId);
+      }
+
+      return next;
+    });
+  };
+
+  const handleAddSubTodo = (parentId: string) => {
+    setCollapsedIds(current => {
+      if (!current.has(parentId)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.delete(parentId);
+      return next;
+    });
+    onAddSubTodo(parentId);
+  };
+
+  const persistEditingRef = useRef(persistEditing);
+  persistEditingRef.current = persistEditing;
+
+  useEffect(() => {
+    if (!editingTodoId || !editingTodo || !canPersistEdit(editingTodo)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void persistEditing();
+    }, AUTO_SAVE_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [
+    editTitle,
+    editContent,
+    editRelatedAddressesText,
+    editDueDate,
+    editingTodo,
+    editingTodoId,
+    canPersistEdit,
+    persistEditing,
+  ]);
+
+  useEffect(() => () => {
+    void persistEditingRef.current();
+  }, []);
+
+  const handleDeleteTodo = (todoId: string) => {
+    Alert.alert(
+      'Delete Task?',
+      'This removes the task and any sub-tasks.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void onDeleteTodo(todoId);
+            collapseEditing();
+          },
+        },
+      ]
+    );
+  };
+
+  const renderNestingGutter = (depth: number) => {
+    if (depth === 0) {
       return null;
     }
 
+    const guideCount = Math.min(depth, TODO_MAX_NEST_GUIDES);
+    const showDepthBadge = depth > TODO_MAX_NEST_GUIDES;
+
     return (
-      <View style={[styles.todoEditPanel, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}>
-        <Text style={[styles.sourcePanelTitle, { color: theme.secondaryButtonText }]}>Edit Task</Text>
+      <View
+        style={[
+          styles.todoNestingGutter,
+          { width: guideCount * TODO_NEST_STEP + (showDepthBadge ? 26 : 0) },
+        ]}
+      >
+        {Array.from({ length: guideCount }, (_, index) => {
+          const isActiveGuide = index === guideCount - 1;
+          const guideLeft = index * TODO_NEST_STEP + TODO_NEST_STEP / 2;
 
-        <Text style={[styles.label, { color: theme.subtleText }]}>Title</Text>
-        <TextInput
-          style={[styles.input, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
-          value={editTitle}
-          onChangeText={setEditTitle}
-          placeholder="Task title"
-          placeholderTextColor={theme.mutedText}
-        />
+          return (
+            <React.Fragment key={`guide-${index}`}>
+              <View
+                style={[
+                  isActiveGuide ? styles.todoNestGuideActive : styles.todoNestGuide,
+                  {
+                    left: guideLeft,
+                    backgroundColor: isActiveGuide ? theme.accent : theme.border,
+                    opacity: isActiveGuide ? 0.75 : 0.3,
+                  },
+                ]}
+              />
+              {isActiveGuide ? (
+                <View
+                  style={[
+                    styles.todoNestBranch,
+                    {
+                      left: guideLeft,
+                      backgroundColor: theme.accent,
+                      opacity: 0.75,
+                    },
+                  ]}
+                />
+              ) : null}
+            </React.Fragment>
+          );
+        })}
 
-        <Text style={[styles.label, { color: theme.subtleText }]}>Notes</Text>
-        <TextInput
-          style={[styles.input, styles.quickCaptureInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
-          value={editContent}
-          onChangeText={setEditContent}
-          placeholder="Optional notes"
-          placeholderTextColor={theme.mutedText}
-          multiline
-          numberOfLines={4}
-        />
-
-        <Text style={[styles.label, { color: theme.subtleText }]}>Due Date</Text>
-        <TextInput
-          style={[styles.input, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
-          value={editDueDate}
-          onChangeText={setEditDueDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={theme.mutedText}
-          autoCapitalize="none"
-        />
-
-        <Text style={[styles.label, { color: theme.subtleText }]}>Linked Cards</Text>
-        <TextInput
-          style={[styles.input, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
-          value={editRelatedAddressesText}
-          onChangeText={setEditRelatedAddressesText}
-          placeholder="e.g. 0101a, 0102b"
-          placeholderTextColor={theme.mutedText}
-          autoCapitalize="none"
-        />
-
-        <View style={styles.inboxActionRow}>
-          <TouchableOpacity
-            style={[styles.inboxActionButton, { backgroundColor: theme.primaryButton }]}
-            onPress={saveEditing}
+        {showDepthBadge ? (
+          <View
+            style={[
+              styles.todoNestDepthBadge,
+              { borderColor: theme.border, backgroundColor: theme.tertiaryBackground },
+            ]}
           >
-            <Text style={[styles.inboxActionButtonText, { color: theme.primaryButtonText }]}>Save</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.inboxActionButton, { backgroundColor: theme.secondaryBackground, borderWidth: 1, borderColor: theme.border }]}
-            onPress={cancelEditing}
-          >
-            <Text style={[styles.inboxActionButtonText, { color: theme.secondaryButtonText }]}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
+            <Text style={[styles.todoNestDepthText, { color: theme.mutedText }]}>{depth}</Text>
+          </View>
+        ) : null}
       </View>
     );
   };
 
+  const renderInlineEditPanel = (todo: Todo) => (
+    <View style={[styles.todoEditPanelInline, { backgroundColor: theme.tertiaryBackground, borderColor: theme.border }]}>
+      <TextInput
+        style={[styles.todoCompactInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+        value={editTitle}
+        onChangeText={setEditTitle}
+        placeholder="Title"
+        placeholderTextColor={theme.mutedText}
+      />
+
+      <TextInput
+        style={[styles.todoCompactInput, styles.todoCompactNotesInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+        value={editContent}
+        onChangeText={setEditContent}
+        placeholder="Notes"
+        placeholderTextColor={theme.mutedText}
+        multiline
+        numberOfLines={2}
+      />
+
+      <View style={styles.todoCompactFieldRow}>
+        <TextInput
+          style={[styles.todoCompactInput, styles.todoCompactHalfInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+          value={editDueDate}
+          onChangeText={setEditDueDate}
+          placeholder="Due YYYY-MM-DD"
+          placeholderTextColor={theme.mutedText}
+          autoCapitalize="none"
+        />
+        <TextInput
+          style={[styles.todoCompactInput, styles.todoCompactHalfInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
+          value={editRelatedAddressesText}
+          onChangeText={setEditRelatedAddressesText}
+          placeholder="Cards 0101a"
+          placeholderTextColor={theme.mutedText}
+          autoCapitalize="none"
+        />
+      </View>
+
+      <View style={styles.todoCompactStructureRow}>
+        <TouchableOpacity
+          style={[
+            styles.todoCompactIconButton,
+            {
+              backgroundColor: theme.secondaryBackground,
+              borderWidth: 1,
+              borderColor: theme.border,
+              opacity: canOutdentTodo(todos, todo.id) ? 1 : 0.45,
+            },
+          ]}
+          onPress={() => canOutdentTodo(todos, todo.id) && onOutdentTodo(todo.id)}
+          disabled={!canOutdentTodo(todos, todo.id)}
+        >
+          <Text style={[styles.todoCompactActionIcon, { color: theme.secondaryButtonText }]}>{'\u2190'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.todoCompactIconButton,
+            {
+              backgroundColor: theme.secondaryBackground,
+              borderWidth: 1,
+              borderColor: theme.border,
+              opacity: canIndentTodo(todos, todo.id) ? 1 : 0.45,
+            },
+          ]}
+          onPress={() => canIndentTodo(todos, todo.id) && onIndentTodo(todo.id)}
+          disabled={!canIndentTodo(todos, todo.id)}
+        >
+          <Text style={[styles.todoCompactActionIcon, { color: theme.secondaryButtonText }]}>{'\u2192'}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   const renderTodoRow = ({ item, drag, isActive }: RenderItemParams<FlatTodoItem>) => {
     const { todo, depth } = item;
-    const indent = depth * 18;
-    const dueDateLabel = formatTodoDueDate(todo.dueDate);
     const isEditing = editingTodoId === todo.id;
-    const showIndent = canIndentTodo(todos, todo.id);
-    const showOutdent = canOutdentTodo(todos, todo.id);
+    const hasChildren = todoHasChildren(todos, todo.id, showCompleted);
+    const isSubtreeCollapsed = collapsedIds.has(todo.id);
+    const childCount = hasChildren ? countSubtreeTodos(todos, todo.id, showCompleted) : 0;
 
     return (
       <ScaleDecorator>
         <View
           style={[
-            styles.inboxCard,
+            styles.todoListItem,
             {
-              backgroundColor: theme.cardBackground,
-              borderColor: isEditing ? theme.accent : theme.border,
-              marginLeft: indent,
-              marginBottom: 14,
-              opacity: todo.completed ? 0.65 : 1,
+              opacity: todo.completed ? 0.6 : 1,
+              backgroundColor: isActive ? theme.accentSoft : 'transparent',
             },
-            isActive && { borderColor: theme.accent, shadowOpacity: 0.2 },
           ]}
         >
           <View style={styles.todoCardRow}>
-            <TouchableOpacity
-              onLongPress={drag}
-              delayLongPress={120}
-              style={[
-                styles.todoDragHandle,
-                { borderColor: theme.border, backgroundColor: theme.tertiaryBackground },
-              ]}
-            >
-              <Text style={[styles.todoDragHandleText, { color: theme.mutedText }]}>{'\u2261'}</Text>
-            </TouchableOpacity>
+            <View style={styles.todoFixedControls}>
+              <TouchableOpacity
+                onLongPress={drag}
+                delayLongPress={120}
+                style={styles.todoDragHandle}
+              >
+                <Text style={[styles.todoDragHandleText, { color: theme.mutedText }]}>{'\u2261'}</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.todoCheckButton,
-                {
-                  borderColor: todo.completed ? theme.accent : theme.border,
-                  backgroundColor: todo.completed ? theme.accentSoft : theme.cardBackground,
-                },
-              ]}
-              onPress={() => onToggleTodo(todo.id)}
-            >
-              <Text style={[styles.todoCheckMark, { color: todo.completed ? theme.accent : theme.mutedText }]}>
-                {todo.completed ? '\u2713' : ''}
-              </Text>
-            </TouchableOpacity>
-
-            <View style={styles.todoRowBody}>
-              <Text
+              <TouchableOpacity
                 style={[
-                  styles.inboxTitle,
+                  styles.todoCheckButton,
                   {
-                    color: theme.text,
-                    textDecorationLine: todo.completed ? 'line-through' : 'none',
+                    borderColor: todo.completed ? theme.accent : theme.border,
+                    backgroundColor: todo.completed ? theme.accentSoft : 'transparent',
                   },
                 ]}
+                onPress={() => onToggleTodo(todo.id)}
               >
-                {todo.title}
-              </Text>
-
-              {dueDateLabel ? (
-                <View style={styles.todoMetaRow}>
-                  <View style={[styles.todoMetaPill, { borderColor: theme.border, backgroundColor: theme.accentSoft }]}>
-                    <Text style={[styles.todoMetaPillText, { color: theme.secondaryButtonText }]}>Due {dueDateLabel}</Text>
-                  </View>
-                </View>
-              ) : null}
-
-              {todo.content ? (
-                <Text style={[styles.inboxPreview, { color: theme.mutedText }]} numberOfLines={4}>
-                  {todo.content}
+                <Text style={[styles.todoCheckMark, { color: todo.completed ? theme.accent : theme.mutedText }]}>
+                  {todo.completed ? '\u2713' : ''}
                 </Text>
-              ) : null}
+              </TouchableOpacity>
+            </View>
 
-              {(todo.relatedAddresses ?? []).length > 0 ? (
-                <View style={styles.todoMetaRow}>
-                  {(todo.relatedAddresses ?? []).map(address => (
-                    <TouchableOpacity
-                      key={`${todo.id}-${address}`}
-                      style={[styles.todoLinkedCardButton, { borderColor: theme.border, backgroundColor: theme.tertiaryBackground }]}
-                      onPress={() => onOpenLinkedCard(address)}
-                    >
-                      <Text style={[styles.todoLinkedCardText, { color: theme.secondaryButtonText }]}>{address}</Text>
-                    </TouchableOpacity>
-                  ))}
+            {renderNestingGutter(depth)}
+
+            <View style={styles.todoRowBody}>
+              <View style={styles.todoTitleRow}>
+                {hasChildren ? (
+                  <TouchableOpacity
+                    style={styles.todoCollapseButton}
+                    onPress={() => toggleSubtree(todo.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  >
+                    <Text style={[styles.todoCollapseIcon, { color: theme.mutedText }]}>
+                      {isSubtreeCollapsed ? '\u25B6' : '\u25BC'}
+                    </Text>
+                    {isSubtreeCollapsed ? (
+                      <Text style={[styles.todoCollapseCount, { color: theme.mutedText }]}>
+                        {childCount}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.todoCollapseSpacer} />
+                )}
+                <TouchableOpacity
+                  style={styles.todoTitleButton}
+                  onPress={() => toggleEditing(todo)}
+                  onLongPress={() => handleDeleteTodo(todo.id)}
+                  delayLongPress={450}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.todoTaskTitle,
+                      {
+                        color: isEditing ? theme.accent : theme.text,
+                        textDecorationLine: todo.completed ? 'line-through' : 'none',
+                      },
+                    ]}
+                    numberOfLines={3}
+                  >
+                    {isEditing ? editTitle || 'Untitled' : todo.title}
+                  </Text>
+                </TouchableOpacity>
+                <View style={styles.todoTitleActions}>
+                  <TouchableOpacity
+                    style={styles.todoInlineIconButton}
+                    onPress={() => toggleEditing(todo)}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  >
+                    <Text style={[styles.todoEditIconText, { color: isEditing ? theme.accent : theme.mutedText }]}>{'\u270E'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.todoInlineIconButton}
+                    onPress={() => handleAddSubTodo(todo.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                  >
+                    <Text style={[styles.todoEditIconText, { color: theme.mutedText }]}>+</Text>
+                  </TouchableOpacity>
                 </View>
-              ) : null}
-
-              <View style={styles.inboxActionRow}>
-                <TouchableOpacity
-                  style={[styles.inboxActionButton, { backgroundColor: theme.secondaryBackground, borderWidth: 1, borderColor: theme.border }]}
-                  onPress={() => startEditing(todo)}
-                >
-                  <Text style={[styles.inboxActionButtonText, { color: theme.secondaryButtonText }]}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.inboxActionButton, { backgroundColor: theme.secondaryBackground, borderWidth: 1, borderColor: theme.border }]}
-                  onPress={() => onAddSubTodo(todo.id)}
-                >
-                  <Text style={[styles.inboxActionButtonText, { color: theme.secondaryButtonText }]}>+ Sub</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.inboxActionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.inboxActionButton,
-                    {
-                      backgroundColor: theme.secondaryBackground,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      opacity: showIndent ? 1 : 0.45,
-                    },
-                  ]}
-                  onPress={() => showIndent && onIndentTodo(todo.id)}
-                  disabled={!showIndent}
-                >
-                  <Text style={[styles.inboxActionButtonText, { color: theme.secondaryButtonText }]}>Indent</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.inboxActionButton,
-                    {
-                      backgroundColor: theme.secondaryBackground,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      opacity: showOutdent ? 1 : 0.45,
-                    },
-                  ]}
-                  onPress={() => showOutdent && onOutdentTodo(todo.id)}
-                  disabled={!showOutdent}
-                >
-                  <Text style={[styles.inboxActionButtonText, { color: theme.secondaryButtonText }]}>Outdent</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.inboxActionButton, { backgroundColor: theme.secondaryBackground, borderWidth: 1, borderColor: theme.border }]}
-                  onPress={() => onDeleteTodo(todo.id)}
-                >
-                  <Text style={[styles.inboxActionButtonText, { color: theme.secondaryButtonText }]}>Delete</Text>
-                </TouchableOpacity>
               </View>
             </View>
           </View>
+
+          {isEditing ? renderInlineEditPanel(todo) : null}
         </View>
       </ScaleDecorator>
     );
@@ -325,15 +552,38 @@ export default function TodoListScreen({
     <View>
       <Text style={[styles.formTitle, { color: theme.text }]}>Todos</Text>
       <Text style={[styles.contextText, { color: theme.mutedText }]}>
-        Long-press the handle to drag. Drag down onto a task to nest it. Use Indent/Outdent to reparent.
+        Tap a title to edit. Long-press a title to delete. Changes save automatically.
       </Text>
-      {renderEditPanel()}
+
+      <TouchableOpacity
+        style={[
+          styles.secondaryButton,
+          {
+            backgroundColor: showCompleted ? theme.accentSoft : theme.secondaryBackground,
+            borderWidth: 1,
+            borderColor: showCompleted ? theme.accent : theme.border,
+            marginBottom: 12,
+            opacity: completedCount > 0 ? 1 : 0.55,
+          },
+        ]}
+        onPress={() => completedCount > 0 && setShowCompleted(current => !current)}
+        disabled={completedCount === 0}
+      >
+        <Text style={[styles.secondaryButtonText, { color: showCompleted ? theme.accent : theme.secondaryButtonText }]}>
+          {showCompleted ? 'Hide Completed Items' : 'Show Completed Items'}
+          {completedCount > 0 ? ` (${completedCount})` : ''}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 
   const listEmpty = (
     <Text style={[styles.emptyText, { color: theme.mutedText, marginTop: 40 }]}>
-      No todos yet. Use Quick Capture in Todo List mode to create some.
+      {todos.length === 0
+        ? 'No todos yet. Use Quick Capture in Todo List mode to create some.'
+        : openCount === 0 && !showCompleted
+          ? 'All tasks are complete. Tap Show Completed Items to review them.'
+          : 'No todos match this view.'}
     </Text>
   );
 
@@ -354,7 +604,7 @@ export default function TodoListScreen({
         renderItem={renderTodoRow}
       />
 
-      <TouchableOpacity style={styles.cancelButton} onPress={onBack}>
+      <TouchableOpacity style={styles.cancelButton} onPress={() => void handleBack()}>
         <Text style={styles.cancelButtonText}>Back</Text>
       </TouchableOpacity>
     </View>

@@ -67,6 +67,7 @@ export interface AppSettings {
   darkMode: boolean;
   aiAssistEndpoint?: string;
   cardSortMode?: CardSortMode;
+  collapsedTodoIds?: string[];
 }
 
 export type CardSortMode = 'address' | 'recent';

@@ -132,6 +132,7 @@ export default function App() {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [selectedThreadCard, setSelectedThreadCard] = useState<Card | null>(null);
   const [cardThreadReturnScreen, setCardThreadReturnScreen] = useState<Screen>('home');
+  const [cardDetailReturnScreen, setCardDetailReturnScreen] = useState<Screen | null>(null);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [editingCategory, setEditingCategory] = useState<ManagedCategory | null>(null);
   const [categoryPickerReturnScreen, setCategoryPickerReturnScreen] = useState<Screen>('home');
@@ -439,6 +440,7 @@ export default function App() {
   };
 
   const openSelectedCardDetail = (card: Card) => {
+    setCardDetailReturnScreen(currentScreen);
     setSelectedCard(card);
     setSelectedThreadCard(null);
   };
@@ -451,7 +453,12 @@ export default function App() {
   };
 
   const closeSelectedCard = () => {
+    const returnScreen = cardDetailReturnScreen;
     setSelectedCard(null);
+    setCardDetailReturnScreen(null);
+    if (returnScreen) {
+      setCurrentScreen(returnScreen);
+    }
   };
 
   const returnFromCardThreadToDetail = () => {
@@ -1428,6 +1435,11 @@ export default function App() {
     const idsToDelete = collectDescendantIds(todos, todoId);
     const updatedTodos = todos.filter(todo => !idsToDelete.has(todo.id));
     await saveTodos(updatedTodos);
+
+    const prunedCollapsedIds = (settings.collapsedTodoIds ?? []).filter(id => !idsToDelete.has(id));
+    if (prunedCollapsedIds.length !== (settings.collapsedTodoIds ?? []).length) {
+      await saveSettings({ ...settings, collapsedTodoIds: prunedCollapsedIds });
+    }
   };
 
   const addSubTodo = async (parentId: string) => {
@@ -1449,12 +1461,15 @@ export default function App() {
       content?: string;
       relatedAddressesText?: string;
       dueDate?: string;
-    }
-  ) => {
+    },
+    options?: { quiet?: boolean }
+  ): Promise<boolean> => {
     const trimmedTitle = updates.title.trim();
     if (!trimmedTitle) {
-      Alert.alert('Title Required', 'Give this task a title before saving.');
-      return;
+      if (!options?.quiet) {
+        Alert.alert('Title Required', 'Give this task a title before saving.');
+      }
+      return false;
     }
 
     const normalizedDueDate = updates.dueDate === undefined
@@ -1462,8 +1477,10 @@ export default function App() {
       : normalizeTodoDueDateInput(updates.dueDate);
 
     if (updates.dueDate?.trim() && !normalizedDueDate) {
-      Alert.alert('Invalid Due Date', 'Use YYYY-MM-DD or a recognizable date.');
-      return;
+      if (!options?.quiet) {
+        Alert.alert('Invalid Due Date', 'Use YYYY-MM-DD or a recognizable date.');
+      }
+      return false;
     }
 
     const relatedAddresses = parseCommaSeparatedValues(updates.relatedAddressesText ?? '').map(normalizeAddress);
@@ -1480,6 +1497,13 @@ export default function App() {
         : todo
     );
     await saveTodos(updatedTodos);
+    return true;
+  };
+
+  const saveCollapsedTodoIds = async (collapsedTodoIds: string[]) => {
+    const validIds = new Set(todos.map(todo => todo.id));
+    const pruned = collapsedTodoIds.filter(id => validIds.has(id));
+    await saveSettings({ ...settings, collapsedTodoIds: pruned });
   };
 
   const reorderTodos = async (flat: FlatTodoItem[], from: number, to: number) => {
@@ -1586,6 +1610,28 @@ export default function App() {
       await waitForThinkingDwell(thinkingStartedAt, 420);
       loadCaptureIntoCardForm(capture, capture.id, structuredResult);
     })();
+  };
+
+  const turnInboxCaptureIntoTodos = async (capture: InboxCapture) => {
+    const newTodos = parseTodosFromCapture(capture.title, capture.content);
+    if (newTodos.length === 0) {
+      Alert.alert('Nothing to Create', 'Could not parse any tasks from this capture.');
+      return;
+    }
+
+    try {
+      await saveTodos(ensureTodoSortOrders([...newTodos, ...todos]));
+      await saveInboxCaptures(inboxCaptures.filter(item => item.id !== capture.id));
+
+      const subCount = newTodos.filter(todo => todo.parentId).length;
+      const message = subCount > 0
+        ? `Created 1 parent task with ${subCount} sub-task${subCount === 1 ? '' : 's'}.`
+        : `Created ${newTodos.length} task${newTodos.length === 1 ? '' : 's'}.`;
+
+      Alert.alert('Todos Created', message);
+    } catch (e) {
+      Alert.alert('Conversion Error', 'This capture could not be turned into todos. Please try again.');
+    }
   };
 
   const deleteInboxCapture = (capture: InboxCapture) => {
@@ -1966,10 +2012,12 @@ export default function App() {
     <TodoListScreen
       darkMode={settings.darkMode}
       todos={todos}
+      collapsedTodoIds={settings.collapsedTodoIds ?? []}
       onToggleTodo={toggleTodo}
       onDeleteTodo={deleteTodo}
       onAddSubTodo={addSubTodo}
       onUpdateTodo={updateTodo}
+      onCollapsedTodoIdsChange={saveCollapsedTodoIds}
       onReorderTodos={reorderTodos}
       onIndentTodo={indentTodoItem}
       onOutdentTodo={outdentTodoItem}
@@ -1988,6 +2036,7 @@ export default function App() {
       }}
       onFileCapture={fileInboxCapture}
       onFileCaptureWithAi={fileInboxCaptureWithAi}
+      onTurnIntoTodos={turnInboxCaptureIntoTodos}
       onDeleteCapture={deleteInboxCapture}
       onBack={() => setCurrentScreen('home')}
     />

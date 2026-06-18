@@ -40,6 +40,7 @@ export interface Todo {
   parentId?: string;
   sortOrder: number;
   createdAt: string;
+  dueDate?: string;
   relatedAddresses?: string[];
 }
 

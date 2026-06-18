@@ -6,6 +6,11 @@ export interface TodoTreeNode {
   children: TodoTreeNode[];
 }
 
+export interface FlatTodoItem {
+  todo: Todo;
+  depth: number;
+}
+
 const ROOT_PARENT_KEY = '__root__';
 
 export const getTodoParentKey = (parentId?: string) => parentId ?? ROOT_PARENT_KEY;
@@ -147,6 +152,140 @@ export const moveTodoAmongSiblings = (
 
     return item;
   });
+};
+
+export const flattenTodoTree = (todos: Todo[]): FlatTodoItem[] => {
+  const result: FlatTodoItem[] = [];
+
+  const walk = (nodes: TodoTreeNode[]) => {
+    for (const node of nodes) {
+      result.push({ todo: node.todo, depth: node.depth });
+      walk(node.children);
+    }
+  };
+
+  walk(buildTodoTree(todos));
+  return result;
+};
+
+export const clampFlatTodoDepths = (flat: FlatTodoItem[]): FlatTodoItem[] => {
+  const result: FlatTodoItem[] = [];
+
+  flat.forEach((item, index) => {
+    if (index === 0) {
+      result.push({ ...item, depth: 0 });
+      return;
+    }
+
+    const previousDepth = result[index - 1].depth;
+    const depth = Math.max(0, Math.min(item.depth, previousDepth + 1));
+    result.push({ ...item, depth });
+  });
+
+  return result;
+};
+
+export const rebuildTodosFromFlatOrder = (
+  todos: Todo[],
+  flatOrder: Array<{ id: string; depth: number }>
+): Todo[] => {
+  const todoById = new Map(todos.map(todo => [todo.id, todo]));
+  const parentStack: string[] = [];
+  const siblingCounts = new Map<string, number>();
+  const updated: Todo[] = [];
+
+  for (const { id, depth } of flatOrder) {
+    while (parentStack.length > depth) {
+      parentStack.pop();
+    }
+
+    const parentId = depth === 0 ? undefined : parentStack[depth - 1];
+    const parentKey = getTodoParentKey(parentId);
+    const sortOrder = siblingCounts.get(parentKey) ?? 0;
+    siblingCounts.set(parentKey, sortOrder + 1);
+    parentStack[depth] = id;
+
+    const existing = todoById.get(id);
+    if (existing) {
+      updated.push({ ...existing, parentId, sortOrder });
+    }
+  }
+
+  return updated;
+};
+
+export const adjustDepthAfterDrag = (
+  flat: FlatTodoItem[],
+  from: number,
+  to: number
+): FlatTodoItem[] => {
+  const result = flat.map(item => ({ ...item }));
+  const moved = result[to];
+  if (!moved) {
+    return result;
+  }
+
+  if (to > from && to > 0) {
+    moved.depth = result[to - 1].depth + 1;
+  } else if (to < from) {
+    const below = result[to + 1];
+    moved.depth = below ? below.depth : 0;
+  }
+
+  return clampFlatTodoDepths(result);
+};
+
+export const reorderTodosFromDrag = (
+  todos: Todo[],
+  flat: FlatTodoItem[],
+  from: number,
+  to: number
+): Todo[] => {
+  const adjusted = adjustDepthAfterDrag(flat, from, to);
+  return rebuildTodosFromFlatOrder(
+    todos,
+    adjusted.map(item => ({ id: item.todo.id, depth: item.depth }))
+  );
+};
+
+export const indentTodo = (todos: Todo[], todoId: string): Todo[] => {
+  const flat = flattenTodoTree(todos);
+  const index = flat.findIndex(item => item.todo.id === todoId);
+  if (index <= 0) {
+    return todos;
+  }
+
+  flat[index] = { ...flat[index], depth: flat[index - 1].depth + 1 };
+  return rebuildTodosFromFlatOrder(
+    todos,
+    clampFlatTodoDepths(flat).map(item => ({ id: item.todo.id, depth: item.depth }))
+  );
+};
+
+export const outdentTodo = (todos: Todo[], todoId: string): Todo[] => {
+  const flat = flattenTodoTree(todos);
+  const index = flat.findIndex(item => item.todo.id === todoId);
+  if (index < 0 || flat[index].depth === 0) {
+    return todos;
+  }
+
+  flat[index] = { ...flat[index], depth: flat[index].depth - 1 };
+  return rebuildTodosFromFlatOrder(
+    todos,
+    clampFlatTodoDepths(flat).map(item => ({ id: item.todo.id, depth: item.depth }))
+  );
+};
+
+export const canIndentTodo = (todos: Todo[], todoId: string): boolean => {
+  const flat = flattenTodoTree(todos);
+  const index = flat.findIndex(item => item.todo.id === todoId);
+  return index > 0;
+};
+
+export const canOutdentTodo = (todos: Todo[], todoId: string): boolean => {
+  const flat = flattenTodoTree(todos);
+  const index = flat.findIndex(item => item.todo.id === todoId);
+  return index >= 0 && flat[index].depth > 0;
 };
 
 export const canMoveTodo = (todos: Todo[], todoId: string, direction: 'up' | 'down'): boolean => {

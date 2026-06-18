@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, FlatList, PanResponder, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import * as Sharing from 'expo-sharing';
 import { NavigationContainer } from '@react-navigation/native';
@@ -71,11 +72,15 @@ import {
   validateCategoryAddress,
 } from './utils/antinet';
 import { parseTodosFromCapture } from './utils/todoParsing';
+import { normalizeTodoDueDateInput } from './utils/todoDates';
 import {
   collectDescendantIds,
   ensureTodoSortOrders,
+  FlatTodoItem,
   getNextSortOrder,
-  moveTodoAmongSiblings,
+  indentTodo,
+  outdentTodo,
+  reorderTodosFromDrag,
 } from './utils/todoTree';
 import {
   CARDS_FILE,
@@ -1439,7 +1444,12 @@ export default function App() {
 
   const updateTodo = async (
     todoId: string,
-    updates: { title: string; content?: string }
+    updates: {
+      title: string;
+      content?: string;
+      relatedAddressesText?: string;
+      dueDate?: string;
+    }
   ) => {
     const trimmedTitle = updates.title.trim();
     if (!trimmedTitle) {
@@ -1447,24 +1457,62 @@ export default function App() {
       return;
     }
 
+    const normalizedDueDate = updates.dueDate === undefined
+      ? undefined
+      : normalizeTodoDueDateInput(updates.dueDate);
+
+    if (updates.dueDate?.trim() && !normalizedDueDate) {
+      Alert.alert('Invalid Due Date', 'Use YYYY-MM-DD or a recognizable date.');
+      return;
+    }
+
+    const relatedAddresses = parseCommaSeparatedValues(updates.relatedAddressesText ?? '').map(normalizeAddress);
+
     const updatedTodos = todos.map(todo =>
       todo.id === todoId
         ? {
             ...todo,
             title: trimmedTitle,
             content: updates.content?.trim() ? updates.content.trim() : undefined,
+            relatedAddresses: relatedAddresses.length ? relatedAddresses : undefined,
+            dueDate: normalizedDueDate,
           }
         : todo
     );
     await saveTodos(updatedTodos);
   };
 
-  const moveTodo = async (todoId: string, direction: 'up' | 'down') => {
-    const updatedTodos = moveTodoAmongSiblings(todos, todoId, direction);
+  const reorderTodos = async (flat: FlatTodoItem[], from: number, to: number) => {
+    const updatedTodos = reorderTodosFromDrag(todos, flat, from, to);
+    await saveTodos(updatedTodos);
+  };
+
+  const indentTodoItem = async (todoId: string) => {
+    const updatedTodos = indentTodo(todos, todoId);
     if (updatedTodos === todos) {
       return;
     }
     await saveTodos(updatedTodos);
+  };
+
+  const outdentTodoItem = async (todoId: string) => {
+    const updatedTodos = outdentTodo(todos, todoId);
+    if (updatedTodos === todos) {
+      return;
+    }
+    await saveTodos(updatedTodos);
+  };
+
+  const openLinkedCard = (address: string) => {
+    const normalizedAddress = normalizeAddress(address);
+    const card = cards.find(item => normalizeAddress(item.address) === normalizedAddress);
+    if (!card) {
+      Alert.alert('Card Not Found', `No card found at address ${normalizedAddress}.`);
+      return;
+    }
+
+    setCardThreadReturnScreen('todoList');
+    openSelectedCardDetail(card);
   };
 
   const openCardFromList = (card: Card) => {
@@ -1922,7 +1970,10 @@ export default function App() {
       onDeleteTodo={deleteTodo}
       onAddSubTodo={addSubTodo}
       onUpdateTodo={updateTodo}
-      onMoveTodo={moveTodo}
+      onReorderTodos={reorderTodos}
+      onIndentTodo={indentTodoItem}
+      onOutdentTodo={outdentTodoItem}
+      onOpenLinkedCard={openLinkedCard}
       onBack={() => setCurrentScreen('home')}
     />
   );
@@ -2072,6 +2123,10 @@ export default function App() {
       return renderCardListScreen();
     }
 
+    if (currentScreen === 'todoList') {
+      return renderTodoListScreen();
+    }
+
     return renderScrollShell(renderScreenContent(currentScreen), `foreground-${currentScreen}`);
   };
 
@@ -2119,6 +2174,7 @@ export default function App() {
   const underlayContent = renderUnderlayContent(frozenSwipeUnderlay ?? liveSwipeUnderlayDescriptor);
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <NavigationContainer>
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <StatusBar style={settings.darkMode ? 'light' : 'dark'} />
@@ -2143,5 +2199,6 @@ export default function App() {
         </ErrorBoundary>
       </View>
     </NavigationContainer>
+    </GestureHandlerRootView>
   );
 }

@@ -17,7 +17,7 @@ import HomeScreen from './components/HomeScreen';
 import InboxScreen from './components/InboxScreen';
 import NewCardScreen from './components/NewCardScreen';
 import NewCategoryScreen from './components/NewCategoryScreen';
-import QuickCaptureScreen from './components/QuickCaptureScreen';
+import QuickCaptureScreen, { QuickCaptureType } from './components/QuickCaptureScreen';
 import SettingsScreen from './components/SettingsScreen';
 import ThinkingScreen from './components/ThinkingScreen';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -69,6 +69,7 @@ import {
   validateCardAddress,
   validateCategoryAddress,
 } from './utils/antinet';
+import { parseTodosFromCapture } from './utils/todoParsing';
 import {
   CARDS_FILE,
   INBOX_FILE,
@@ -149,6 +150,7 @@ export default function App() {
   const [selectedCardListRange, setSelectedCardListRange] = useState<ManagedCategory | null>(null);
   const [captureTitle, setCaptureTitle] = useState('');
   const [captureContent, setCaptureContent] = useState('');
+  const [captureType, setCaptureType] = useState<QuickCaptureType>('card');
   const [filingInboxCaptureId, setFilingInboxCaptureId] = useState<string | null>(null);
   const [askCardsQuestion, setAskCardsQuestion] = useState('');
   const [askCardsResult, setAskCardsResult] = useState<AskCardsResult | null>(null);
@@ -794,6 +796,7 @@ export default function App() {
   const resetCaptureForm = () => {
     setCaptureTitle('');
     setCaptureContent('');
+    setCaptureType('card');
   };
 
   const loadCaptureIntoCardForm = (
@@ -1404,18 +1407,42 @@ export default function App() {
 
   const saveQuickCaptureToInbox = async () => {
     if (!captureContent.trim()) {
-      Alert.alert('Add The Thought First', 'Write the main idea before saving to your inbox.');
+      Alert.alert(
+        captureType === 'todo' ? 'Add Tasks First' : 'Add The Thought First',
+        captureType === 'todo'
+          ? 'Write at least one task before saving.'
+          : 'Write the main idea before saving to your inbox.'
+      );
       return;
     }
 
-    const newCapture: InboxCapture = {
-      id: Date.now().toString(),
-      title: captureTitle.trim(),
-      content: captureContent.trim(),
-      createdAt: new Date().toISOString(),
-    };
-
     try {
+      if (captureType === 'todo') {
+        const newTodos = parseTodosFromCapture(captureTitle, captureContent);
+        if (newTodos.length === 0) {
+          Alert.alert('Nothing to Save', 'Could not parse any todos from your capture.');
+          return;
+        }
+
+        await saveTodos([...newTodos, ...todos]);
+        resetCaptureForm();
+        const subCount = newTodos.filter(todo => todo.parentId).length;
+        const message = subCount > 0
+          ? `Created 1 parent todo with ${subCount} sub-task${subCount === 1 ? '' : 's'}.`
+          : `Created ${newTodos.length} todo${newTodos.length === 1 ? '' : 's'}.`;
+        Alert.alert('Todos Saved', message);
+        setCurrentScreen('home');
+        return;
+      }
+
+      const newCapture: InboxCapture = {
+        id: Date.now().toString(),
+        title: captureTitle.trim(),
+        content: captureContent.trim(),
+        createdAt: new Date().toISOString(),
+        intendedType: 'card',
+      };
+
       await saveInboxCaptures([newCapture, ...inboxCaptures]);
       resetCaptureForm();
       Alert.alert('Captured', 'Your thought was saved to the Capture Inbox.');
@@ -1802,11 +1829,13 @@ export default function App() {
   const renderQuickCaptureScreen = () => (
     <QuickCaptureScreen
       darkMode={settings.darkMode}
+      captureType={captureType}
       title={captureTitle}
       content={captureContent}
+      onCaptureTypeChange={setCaptureType}
       onTitleChange={setCaptureTitle}
       onContentChange={setCaptureContent}
-      onSaveToInbox={saveQuickCaptureToInbox}
+      onSave={saveQuickCaptureToInbox}
       onCancel={() => {
         resetCaptureForm();
         setCurrentScreen('home');

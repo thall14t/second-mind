@@ -278,6 +278,7 @@ export type Screen =
   | 'cardList'
   | 'quickCapture'
   | 'inbox'
+  | 'todoList'
   | 'thinking'
   | 'settings'
   | 'help';

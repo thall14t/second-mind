@@ -7,12 +7,14 @@ import { APP_NAME, APP_TAGLINE } from '../branding';
 interface HomeScreenProps {
   cardCount: number;
   inboxCount: number;
+  todoCount: number;
   darkMode: boolean;
   onAskCards: () => void;
   onQuickCapture: () => void;
   onNewCard: () => void;
   onViewCards: () => void;
   onOpenInbox: () => void;
+  onOpenTodos: () => void;
   onBrowseCategories: () => void;
   onOpenSettings: () => void;
   onOpenHelp: () => void;
@@ -21,12 +23,14 @@ interface HomeScreenProps {
 export default function HomeScreen({
   cardCount,
   inboxCount,
+  todoCount,
   darkMode,
   onAskCards,
   onQuickCapture,
   onNewCard,
   onViewCards,
   onOpenInbox,
+  onOpenTodos,
   onBrowseCategories,
   onOpenSettings,
   onOpenHelp,
@@ -86,6 +90,9 @@ export default function HomeScreen({
           <View style={[styles.heroStatPill, { backgroundColor: theme.tertiaryBackground }]}>
             <Text style={[styles.heroStatText, { color: theme.secondaryButtonText }]}>Inbox: {inboxCount}</Text>
           </View>
+          <View style={[styles.heroStatPill, { backgroundColor: theme.tertiaryBackground }]}>
+            <Text style={[styles.heroStatText, { color: theme.secondaryButtonText }]}>Todos: {todoCount}</Text>
+          </View>
         </View>
       </View>
 
@@ -143,6 +150,16 @@ export default function HomeScreen({
         >
           <Text style={[styles.homeUtilityTitle, { color: theme.text }]}>Capture Inbox</Text>
           <Text style={[styles.homeUtilityMeta, { color: theme.mutedText }]}>{inboxCount} waiting</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.homeUtilityTile,
+            { backgroundColor: theme.cardBackground, borderWidth: 1, borderColor: theme.border },
+          ]}
+          onPress={onOpenTodos}
+        >
+          <Text style={[styles.homeUtilityTitle, { color: theme.text }]}>View Todos</Text>
+          <Text style={[styles.homeUtilityMeta, { color: theme.mutedText }]}>{todoCount} open</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[

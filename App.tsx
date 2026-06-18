@@ -15,6 +15,7 @@ import CategoryPickerScreen from './components/CategoryPickerScreen';
 import HelpScreen from './components/HelpScreen';
 import HomeScreen from './components/HomeScreen';
 import InboxScreen from './components/InboxScreen';
+import TodoListScreen from './components/TodoListScreen';
 import NewCardScreen from './components/NewCardScreen';
 import NewCategoryScreen from './components/NewCategoryScreen';
 import QuickCaptureScreen, { QuickCaptureType } from './components/QuickCaptureScreen';
@@ -516,6 +517,11 @@ export default function App() {
     }
 
     if (currentScreen === 'inbox') {
+      setCurrentScreen('home');
+      return;
+    }
+
+    if (currentScreen === 'todoList') {
       setCurrentScreen('home');
       return;
     }
@@ -1400,6 +1406,29 @@ export default function App() {
     }
   };
 
+  const toggleTodo = async (todoId: string) => {
+    const updatedTodos = todos.map(todo =>
+      todo.id === todoId ? { ...todo, completed: !todo.completed } : todo
+    );
+    await saveTodos(updatedTodos);
+  };
+
+  const deleteTodo = async (todoId: string) => {
+    const updatedTodos = todos.filter(todo => todo.id !== todoId && todo.parentId !== todoId);
+    await saveTodos(updatedTodos);
+  };
+
+  const addSubTodo = async (parentId: string) => {
+    const newSubTodo: Todo = {
+      id: `${Date.now()}-sub`,
+      title: 'New sub-task',
+      completed: false,
+      parentId,
+      createdAt: new Date().toISOString(),
+    };
+    await saveTodos([newSubTodo, ...todos]);
+  };
+
   const openCardFromList = (card: Card) => {
     setCardListRestoreAddress(card.address);
     openSelectedCardDetail(card);
@@ -1624,10 +1653,13 @@ export default function App() {
     );
   };
 
+  const openTodoCount = todos.filter(todo => !todo.completed).length;
+
   const renderHomeScreen = () => (
     <HomeScreen
       cardCount={cards.length}
       inboxCount={inboxCaptures.length}
+      todoCount={openTodoCount}
       darkMode={settings.darkMode}
       onAskCards={() => setCurrentScreen('askCards')}
       onQuickCapture={() => {
@@ -1643,6 +1675,7 @@ export default function App() {
         setCurrentScreen('cardList');
       }}
       onOpenInbox={() => setCurrentScreen('inbox')}
+      onOpenTodos={() => setCurrentScreen('todoList')}
       onBrowseCategories={() => openCategoryPicker('home')}
       onOpenHelp={() => setCurrentScreen('help')}
       onOpenSettings={() => setCurrentScreen('settings')}
@@ -1843,6 +1876,17 @@ export default function App() {
     />
   );
 
+  const renderTodoListScreen = () => (
+    <TodoListScreen
+      darkMode={settings.darkMode}
+      todos={todos}
+      onToggleTodo={toggleTodo}
+      onDeleteTodo={deleteTodo}
+      onAddSubTodo={addSubTodo}
+      onBack={() => setCurrentScreen('home')}
+    />
+  );
+
   const renderInboxScreen = () => (
     <InboxScreen
       darkMode={settings.darkMode}
@@ -1944,6 +1988,10 @@ export default function App() {
 
     if (screen === 'inbox') {
       return renderInboxScreen();
+    }
+
+    if (screen === 'todoList') {
+      return renderTodoListScreen();
     }
 
     if (screen === 'thinking') {

@@ -22,6 +22,7 @@ import NewCategoryScreen from './components/NewCategoryScreen';
 import QuickCaptureScreen from './components/QuickCaptureScreen';
 import SettingsScreen from './components/SettingsScreen';
 import ThinkingScreen from './components/ThinkingScreen';
+import CaptureClarificationModal from './components/CaptureClarificationModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useAiFiling } from './hooks/useAiFiling';
 import { useCaptureStructuring } from './hooks/useCaptureStructuring';
@@ -75,6 +76,8 @@ import {
 } from './utils/antinet';
 import { parseTodosFromCapture } from './utils/todoParsing';
 import {
+  buildCaptureClarificationLabel,
+  buildCaptureClarificationViews,
   buildCaptureProcessingJobViews,
   getInboxCaptureStructuredDraft,
   pruneCaptureJobs,
@@ -173,6 +176,8 @@ export default function App() {
   const [captureTitle, setCaptureTitle] = useState('');
   const [captureContent, setCaptureContent] = useState('');
   const [filingInboxCaptureId, setFilingInboxCaptureId] = useState<string | null>(null);
+  const [clarificationModalJobId, setClarificationModalJobId] = useState<string | null>(null);
+  const [dismissedClarificationJobIds, setDismissedClarificationJobIds] = useState<string[]>([]);
   const [askCardsQuestion, setAskCardsQuestion] = useState('');
   const [askCardsResult, setAskCardsResult] = useState<AskCardsResult | null>(null);
   const [isAskingCards, setIsAskingCards] = useState(false);
@@ -792,7 +797,7 @@ export default function App() {
     inboxCaptures,
   });
 
-  const { submitQuickCapture } = useCaptureRouting({
+  const { submitQuickCapture, resumeCaptureJob } = useCaptureRouting({
     getAiBaseEndpoint,
     captureJobsApi,
     getInboxCaptures: () => useDataStore.getState().inboxCaptures,
@@ -1815,6 +1820,72 @@ export default function App() {
     }
     return map;
   }, [captureJobs]);
+  const clarificationJobs = useMemo(
+    () => buildCaptureClarificationViews(captureJobs, inboxCaptures),
+    [captureJobs, inboxCaptures]
+  );
+  const clarificationModalJob = useMemo(
+    () => clarificationJobs.find(job => job.jobId === clarificationModalJobId) ?? null,
+    [clarificationJobs, clarificationModalJobId]
+  );
+
+  const openClarificationModal = useCallback((jobId?: string) => {
+    const targetJob = jobId
+      ? clarificationJobs.find(job => job.jobId === jobId)
+      : clarificationJobs.find(job => !dismissedClarificationJobIds.includes(job.jobId))
+        ?? clarificationJobs[0];
+
+    if (targetJob) {
+      setDismissedClarificationJobIds(previous => previous.filter(id => id !== targetJob.jobId));
+      setClarificationModalJobId(targetJob.jobId);
+    }
+  }, [clarificationJobs, dismissedClarificationJobIds]);
+
+  const handleChooseClarificationRoute = useCallback(async (route: 'card' | 'todo') => {
+    if (!clarificationModalJobId) {
+      return;
+    }
+
+    const jobId = clarificationModalJobId;
+    setClarificationModalJobId(null);
+    await resumeCaptureJob(jobId, route);
+  }, [clarificationModalJobId, resumeCaptureJob]);
+
+  const handleDismissClarification = useCallback(() => {
+    if (!clarificationModalJobId) {
+      return;
+    }
+
+    setDismissedClarificationJobIds(previous => (
+      previous.includes(clarificationModalJobId)
+        ? previous
+        : [...previous, clarificationModalJobId]
+    ));
+    setClarificationModalJobId(null);
+  }, [clarificationModalJobId]);
+
+  const openClarificationForCapture = useCallback((capture: InboxCapture) => {
+    const job = clarificationJobs.find(item => item.captureId === capture.id);
+    if (!job) {
+      return;
+    }
+
+    setCurrentScreen('home');
+    openClarificationModal(job.jobId);
+  }, [clarificationJobs, openClarificationModal]);
+
+  useEffect(() => {
+    if (currentScreen !== 'home' || clarificationModalJobId !== null) {
+      return;
+    }
+
+    const nextJob = clarificationJobs.find(
+      job => !dismissedClarificationJobIds.includes(job.jobId)
+    );
+    if (nextJob) {
+      setClarificationModalJobId(nextJob.jobId);
+    }
+  }, [clarificationJobs, clarificationModalJobId, currentScreen, dismissedClarificationJobIds]);
 
   const renderHomeScreen = () => (
     <HomeScreen
@@ -1822,6 +1893,8 @@ export default function App() {
       inboxCount={inboxCaptures.length}
       todoCount={openTodoCount}
       processingJobs={processingJobs}
+      clarificationLabel={buildCaptureClarificationLabel(clarificationJobs.length)}
+      onOpenClarification={() => openClarificationModal()}
       darkMode={settings.darkMode}
       onAskCards={() => setCurrentScreen('askCards')}
       onQuickCapture={() => {
@@ -2067,6 +2140,7 @@ export default function App() {
       onFileCaptureWithAi={fileInboxCaptureWithAi}
       onTurnIntoTodos={turnInboxCaptureIntoTodos}
       onDeleteCapture={deleteInboxCapture}
+      onResolveCaptureType={openClarificationForCapture}
       onBack={() => setCurrentScreen('home')}
     />
   );
@@ -2275,6 +2349,14 @@ export default function App() {
             {renderForegroundContent()}
           </Animated.View>
         </ErrorBoundary>
+        <CaptureClarificationModal
+          darkMode={settings.darkMode}
+          job={clarificationModalJob}
+          visible={clarificationModalJobId !== null}
+          onChooseCard={() => { void handleChooseClarificationRoute('card'); }}
+          onChooseTodo={() => { void handleChooseClarificationRoute('todo'); }}
+          onDecideLater={handleDismissClarification}
+        />
       </View>
     </NavigationContainer>
     </GestureHandlerRootView>

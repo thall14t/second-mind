@@ -21,6 +21,7 @@ interface InboxScreenProps {
   onFileCaptureWithAi: (capture: InboxCapture) => void;
   onTurnIntoTodos: (capture: InboxCapture) => void;
   onDeleteCapture: (capture: InboxCapture) => void;
+  onResolveCaptureType?: (capture: InboxCapture) => void;
   onBack: () => void;
 }
 
@@ -33,6 +34,7 @@ export default function InboxScreen({
   onFileCaptureWithAi,
   onTurnIntoTodos,
   onDeleteCapture,
+  onResolveCaptureType,
   onBack,
 }: InboxScreenProps) {
   const theme = getTheme(darkMode);
@@ -122,10 +124,29 @@ export default function InboxScreen({
                 </Text>
               ) : null}
 
+              {displayStatus === 'awaiting_clarification' ? (
+                <Text style={[styles.inboxReadyHint, { color: theme.text }]}>
+                  Second Mind is not sure whether this is a library note or a task list.
+                </Text>
+              ) : null}
+
               {capture.sourceText && !readyToFile ? (
                 <Text style={[styles.inboxSource, { color: theme.mutedText }]} numberOfLines={2}>
                   Source: {capture.sourceText}
                 </Text>
+              ) : null}
+
+              {displayStatus === 'awaiting_clarification' && onResolveCaptureType ? (
+                <View style={styles.inboxActionRow}>
+                  <TouchableOpacity
+                    style={[styles.inboxActionButton, { backgroundColor: theme.primaryButton }]}
+                    onPress={() => onResolveCaptureType(capture)}
+                  >
+                    <Text style={[styles.inboxActionButtonText, { color: theme.primaryButtonText }]}>
+                      Choose Type
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               ) : null}
 
               <View style={styles.inboxActionRow}>

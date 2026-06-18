@@ -3,6 +3,7 @@ import { Image, Text, TouchableOpacity, View } from 'react-native';
 import { styles } from '../styles';
 import { getTheme } from '../theme';
 import { APP_NAME, APP_TAGLINE } from '../branding';
+import { CaptureClarificationBanner } from './CaptureClarificationModal';
 import CaptureProcessingPanel, { CaptureProcessingIndicator } from './CaptureProcessingPanel';
 import { CaptureProcessingJobView } from '../utils/captureJobs';
 
@@ -11,6 +12,8 @@ interface HomeScreenProps {
   inboxCount: number;
   todoCount: number;
   processingJobs: CaptureProcessingJobView[];
+  clarificationLabel: string;
+  onOpenClarification: () => void;
   darkMode: boolean;
   onAskCards: () => void;
   onQuickCapture: () => void;
@@ -28,6 +31,8 @@ export default function HomeScreen({
   inboxCount,
   todoCount,
   processingJobs,
+  clarificationLabel,
+  onOpenClarification,
   darkMode,
   onAskCards,
   onQuickCapture,
@@ -118,6 +123,12 @@ export default function HomeScreen({
           </TouchableOpacity>
         </View>
       </View>
+
+      <CaptureClarificationBanner
+        darkMode={darkMode}
+        label={clarificationLabel}
+        onPress={onOpenClarification}
+      />
 
       <CaptureProcessingIndicator
         darkMode={darkMode}

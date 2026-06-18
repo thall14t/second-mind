@@ -402,6 +402,43 @@ export function buildCaptureProcessingJobViews(
   });
 }
 
+export interface CaptureClarificationJobView {
+  jobId: string;
+  captureId: string;
+  prompt: string;
+  previewTitle: string;
+  previewContent: string;
+}
+
+export function buildCaptureClarificationViews(
+  jobs: CaptureJob[],
+  inboxCaptures: InboxCapture[]
+): CaptureClarificationJobView[] {
+  const captureById = new Map(inboxCaptures.map(capture => [capture.id, capture]));
+
+  return getAwaitingClarificationJobs(jobs).map(job => {
+    const preview = buildCaptureJobPreview(captureById.get(job.captureId));
+    return {
+      jobId: job.id,
+      captureId: job.captureId,
+      prompt: job.classification?.clarificationPrompt?.trim()
+        || 'This could be a library note or a task list. Which fits better?',
+      previewTitle: preview.previewTitle,
+      previewContent: preview.previewContent,
+    };
+  });
+}
+
+export function buildCaptureClarificationLabel(count: number): string {
+  if (count <= 0) {
+    return '';
+  }
+
+  return count === 1
+    ? '1 capture needs your input'
+    : `${count} captures need your input`;
+}
+
 export function buildCaptureProcessingLabel(count: number): string {
   if (count <= 0) {
     return '';

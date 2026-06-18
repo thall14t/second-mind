@@ -59,6 +59,8 @@ function loadModules() {
     getInboxCaptureDisplayStatus,
     getInboxCaptureDisplayTitle,
     getInboxCaptureStatusLabel,
+    buildCaptureClarificationViews,
+    buildCaptureClarificationLabel,
   } = require(path.join(buildDir, 'utils', 'captureJobs.js'));
 
   return {
@@ -72,6 +74,8 @@ function loadModules() {
     getInboxCaptureDisplayStatus,
     getInboxCaptureDisplayTitle,
     getInboxCaptureStatusLabel,
+    buildCaptureClarificationViews,
+    buildCaptureClarificationLabel,
     createCaptureJob,
     getActiveProcessingJobs,
     mapTodoGenerationToTodos,
@@ -102,6 +106,8 @@ function runTests() {
     getInboxCaptureDisplayStatus,
     getInboxCaptureDisplayTitle,
     getInboxCaptureStatusLabel,
+    buildCaptureClarificationViews,
+    buildCaptureClarificationLabel,
   } = loadModules();
 
   const signals = buildClassificationLocalSignals('', '- buy milk\n- call dentist\n1. finish report');
@@ -194,6 +200,26 @@ function runTests() {
     ),
     'processing'
   );
+
+  const clarificationViews = buildCaptureClarificationViews(
+    [{
+      ...job,
+      id: 'clarify-job',
+      status: 'awaiting_clarification',
+      classification: {
+        route: 'card',
+        confidence: 0.2,
+        confidenceBand: 'low',
+        reasoning: 'Ambiguous',
+        needsClarification: true,
+        clarificationPrompt: 'Library note or errands?',
+      },
+    }],
+    [{ id: 'capture-1', title: 'Maybe tasks', content: 'Call someone', createdAt: '2026-01-01T00:00:00.000Z' }]
+  );
+  assert.strictEqual(clarificationViews.length, 1);
+  assert.strictEqual(clarificationViews[0].prompt, 'Library note or errands?');
+  assert.strictEqual(buildCaptureClarificationLabel(2), '2 captures need your input');
 
   console.log('All capture job utils tests passed.');
 }

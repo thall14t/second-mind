@@ -113,6 +113,9 @@ export const migrateDataIfNeeded = (data: any) => {
   return data;
 };
 
+// Note on persistence strategy:
+// Current: JSON files via FileSystem for simplicity and to keep card history "immutable".
+
 export const loadAllData = async () => {
   const [cards, inboxCaptures, customCategories, overrides, deletedIds, settings] = await Promise.all([
     loadJsonFile<Card[]>(CARDS_FILE, []),

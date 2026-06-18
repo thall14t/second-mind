@@ -10,14 +10,26 @@ This sets up the backend for cloud use so the app works without a local PC serve
 
 1. Go to [render.com](https://dashboard.render.com) and sign up (free).
 2. Click **New +** → **Blueprint**.
-3. Connect your GitHub account and select the Antinet repo.
-4. Render will detect the `render.yaml` file.
-5. Review and click **Apply**.
+3. Connect your GitHub account and select the "second-mind" repo.
+4. Make sure it detects the `render.yaml` (you should see a green check and your last commit message).
+5. Scroll all the way to the **bottom** of the page.
+6. Look for a big button that says **Apply**, **Create**, **Deploy**, or **Confirm**.
+   - If the name "second-mind-ai" is already in use (this is common with Blueprints):
+     - Do NOT try to create another service with that name.
+     - Click the left sidebar and go to "Services".
+     - You should see "second-mind-ai" listed there (the Blueprint already created it).
+     - Click on "second-mind-ai" to open its dashboard.
 6. In the service settings:
    - Go to **Environment** tab.
-   - Add:
-     - `XAI_API_KEY` = your actual Grok key (secret)
-     - (Optional) Override `AI_MODEL` if needed.
+   - Add the variable (use "Add Environment Variable", not Secret Files):
+     - Key: `XAI_API_KEY`
+     - Value: paste your full Grok API key
+     - If you don't see a "Secret" checkbox right away:
+       - Save it anyway (the eye icon will let you hide it from view).
+       - Then click the edit icon (pencil or three dots) next to the `XAI_API_KEY` in the list.
+       - In the edit form, a "Secret" checkbox should now appear — check it.
+     - Save.
+     - (Optional) Make sure `AI_MODEL` is set to `grok-4-1-fast`.
 7. Deploy. Wait for the green "Live" status.
 8. Copy your service URL (e.g. `https://second-mind-ai.onrender.com`).
 

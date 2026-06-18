@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
+// Phase 0 wrap-up note: Expand this harness for Phase 1+ to cover todo generation, event extraction, and assistant flows across cards + todos + events.
+
 const appRoot = path.resolve(__dirname, '..');
 const buildDir = path.join(__dirname, '.tmp-ai-filing-regression');
 

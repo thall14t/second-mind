@@ -1,8 +1,8 @@
 # Session Summary: Antinet / Second Mind Expo RN App
 
 **Date of Last Session**: 2026-06-18  
-**Current Branch**: `feature/phase1-todos` (based on `master` / `v0.9-stable-ui`)  
-**Stable Anchor Tag**: `v0.9-stable-ui`  
+**Current Branch**: `feature/phase-a-routing` (based on `v0.10-stable-todos`)  
+**Stable Anchor Tag**: `v0.10-stable-todos` (Phase 1 todos complete; prior: `v0.9-stable-ui`)  
 **Project Path**: `C:\Users\thoma\Antinet`  
 **Git Remote**: `https://github.com/thall14t/second-mind.git`  
 **App Name**: Second Mind (Expo ~54, React Native 0.81, React 19)  
@@ -174,11 +174,13 @@ export interface InboxCapture {
 - [x] **Chunk 3 — Todo Storage Wiring**: Complete (load/save/backup/restore all wired).
 - [x] **Chunk 4 — Basic TodoListScreen**: Parents + indented children, toggle complete, delete, hardcoded "+ Sub".
 - [x] **Chunk 5 — Navigation & Home Integration**: `todoList` screen, Home stats + "View Todos" tile, swipe-back support.
-- [ ] Chunk 6 — Inbox Integration ("Turn into Todo")
-- [ ] Chunk 7 — AI / Structuring Enhancement
-- [ ] Chunk 8 — Polish & Cross-Cutting
+- [x] **Chunk 6 — Inbox Integration** (2026-06-18): "Turn into Todo" button, `turnInboxCaptureIntoTodos` in `App.tsx`, `intendedType` pill on inbox captures.
+- [ ] Chunk 7 — AI / Structuring Enhancement (superseded by Phase A unified capture routing)
+- [x] **Chunk 8 — Polish & Cross-Cutting** (2026-06-18): inline edit, collapse persistence, auto-save, tree guides, long-press delete, Home stat pills.
 
-**Next up**: Chunk 6 — Inbox Integration ("Turn into Todo" button + handler reusing parser).
+**Phase 1 complete** — tagged `v0.10-stable-todos` (commit `ce99607`).
+
+**Next up**: **Phase A — Unified AI Capture Routing** on `feature/phase-a-routing` (A1 contract doc → types/jobs → server APIs → client).
 
 ---
 
@@ -501,10 +503,11 @@ export interface InboxCapture {
 Open questions are resolved (see "Open Questions — Resolved" in the Phase 1 plan section above).
 
 **Immediate next action**:
-Continue on `feature/phase1-todos` with **Chunk 6 — Inbox Integration**:
-1. Add "Turn into Todo" button in `InboxScreen.tsx`.
-2. Handler in `App.tsx`: `parseTodosFromCapture` → `saveTodos` → delete capture.
-3. Optionally show `intendedType` label on inbox captures.
+On `feature/phase-a-routing`, start **Phase A — Unified AI Capture Routing**:
+1. **A1**: Write `docs/second-mind-capture-routing-contract.md` (classify → enrich-card OR generate-todos).
+2. **A2**: Capture job types + `useCaptureJobs` hook.
+3. **A3**: Server endpoints (`classify-capture`, `enrich-card-capture`, `generate-todos`).
+4. **A4–A8**: Quick Capture single-submit, Home processing indicator, inbox prefilled draft, auto-todo creation, clarifying modal.
 
 ---
 

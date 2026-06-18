@@ -19,6 +19,18 @@ const filingCoreSuggestionCache = new Map();
 const filingCoreSuggestionInFlight = new Map();
 const captureStructuringCache = new Map();
 const captureStructuringInFlight = new Map();
+const captureClassificationCache = new Map();
+const captureClassificationInFlight = new Map();
+const captureEnrichmentCache = new Map();
+const captureEnrichmentInFlight = new Map();
+const todoGenerationCache = new Map();
+const todoGenerationInFlight = new Map();
+
+const {
+  requestClassifyCapture,
+  requestEnrichCardCapture,
+  requestGenerateTodos,
+} = require('./captureRouting');
 
 function loadEnvFile(envPath) {
   if (!fs.existsSync(envPath)) {
@@ -187,6 +199,39 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (route === '/api/classify-capture') {
+      const result = await withCachedAiResponse(
+        captureClassificationCache,
+        captureClassificationInFlight,
+        buildAiCacheKey(body),
+        () => requestClassifyCapture(body, buildCaptureRoutingDeps())
+      );
+      sendJson(res, 200, { result });
+      return;
+    }
+
+    if (route === '/api/enrich-card-capture') {
+      const result = await withCachedAiResponse(
+        captureEnrichmentCache,
+        captureEnrichmentInFlight,
+        buildAiCacheKey(body),
+        () => requestEnrichCardCapture(body, requestCaptureStructuring)
+      );
+      sendJson(res, 200, { result });
+      return;
+    }
+
+    if (route === '/api/generate-todos') {
+      const result = await withCachedAiResponse(
+        todoGenerationCache,
+        todoGenerationInFlight,
+        buildAiCacheKey(body),
+        () => requestGenerateTodos(body, buildCaptureRoutingDeps())
+      );
+      sendJson(res, 200, { result });
+      return;
+    }
+
     if (route === '/api/ask-cards') {
       const result = await requestAskCardsAnswer(body);
       sendJson(res, 200, { result });
@@ -249,6 +294,16 @@ function readJsonBody(req) {
 
 function buildAiCacheKey(value) {
   return JSON.stringify(value);
+}
+
+function buildCaptureRoutingDeps() {
+  return {
+    apiKey: API_KEY,
+    model: MODEL,
+    responsesUrl: RESPONSES_URL,
+    fetch,
+    extractOutputText,
+  };
 }
 
 function rememberCachedAiValue(cache, key, value) {

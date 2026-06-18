@@ -18,6 +18,9 @@ It currently powers:
 
 - `POST /api/suggest-card-filing` for AI category/card suggestions.
 - `POST /api/ask-cards` for answering questions from saved cards.
+- `POST /api/classify-capture` for routing rough captures to card or todo paths.
+- `POST /api/enrich-card-capture` for structuring card drafts from captures.
+- `POST /api/generate-todos` for generating nestable todos from captures.
 
 Example `server/.env`:
 
@@ -54,7 +57,10 @@ For cloud deployment (required for App Store trialing), deploy this server to [R
 It currently powers:
 - `POST /api/suggest-card-filing`
 - `POST /api/ask-cards`
-- `POST /api/structure-capture`
+- `POST /api/structure-capture` (legacy inbox fallback)
+- `POST /api/classify-capture`
+- `POST /api/enrich-card-capture`
+- `POST /api/generate-todos`
 
 ## Expo Go / Local Testing
 

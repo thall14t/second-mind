@@ -40,6 +40,7 @@ import {
   ManagedCategory,
   Screen,
   ThinkingState,
+  Todo,
 } from './types';
 import { getTheme } from './theme';
 import {
@@ -80,6 +81,7 @@ import {
   saveJsonFile,
   saveCardsToFile,
   saveInboxCapturesToFile,
+  saveTodosToFile,
   saveCustomCategoriesToFile,
   saveCategoryOverridesToFile,
   saveDeletedDefaultCategoryIdsToFile,
@@ -137,6 +139,7 @@ export default function App() {
   const { 
     cards, setCards,
     inboxCaptures, setInboxCaptures,
+    todos, setTodos,
     customCategories, setCustomCategories,
     categoryOverrides, setCategoryOverrides,
     deletedDefaultCategoryIds, setDeletedDefaultCategoryIds,
@@ -202,6 +205,7 @@ export default function App() {
     data = migrateDataIfNeeded(data);
     setCards(data.cards.map(normalizeCard));
     setInboxCaptures(data.inboxCaptures);
+    setTodos(data.todos);
     setCustomCategories(data.customCategories);
     setCategoryOverrides(data.overrides);
     setDeletedDefaultCategoryIds(data.deletedIds);
@@ -216,6 +220,11 @@ export default function App() {
   const saveInboxCaptures = async (updatedCaptures: InboxCapture[]) => {
     await saveInboxCapturesToFile(updatedCaptures);
     setInboxCaptures(updatedCaptures);
+  };
+
+  const saveTodos = async (updatedTodos: Todo[]) => {
+    await saveTodosToFile(updatedTodos);
+    setTodos(updatedTodos);
   };
 
   const saveCustomCategories = async (updatedCategories: CustomCategory[]) => {
@@ -247,7 +256,8 @@ export default function App() {
         data.customCategories,
         data.overrides,
         data.deletedIds,
-        data.settings
+        data.settings,
+        data.todos
       );
 
       const now = new Date();
@@ -291,7 +301,7 @@ export default function App() {
 
     Alert.alert(
       'Restore from Backup?',
-      'This will replace your current cards, inbox captures, custom categories, and settings.\n\nThis action cannot be undone. Are you sure you want to continue?',
+      'This will replace your current cards, inbox captures, todos, custom categories, and settings.\n\nThis action cannot be undone. Are you sure you want to continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -302,6 +312,7 @@ export default function App() {
               const {
                 cards = [],
                 inboxCaptures = [],
+                todos: backupTodos = [],
                 customCategories = [],
                 categoryOverrides = [],
                 deletedDefaultCategoryIds = [],
@@ -313,6 +324,7 @@ export default function App() {
               await Promise.all([
                 saveCardsToFile(normalizedCards),
                 saveInboxCapturesToFile(inboxCaptures ?? []),
+                saveTodosToFile(backupTodos ?? []),
                 saveCustomCategoriesToFile(customCategories ?? []),
                 saveCategoryOverridesToFile(categoryOverrides ?? []),
                 saveDeletedDefaultCategoryIdsToFile(deletedDefaultCategoryIds ?? []),
@@ -321,6 +333,7 @@ export default function App() {
 
               setCards(normalizedCards);
               setInboxCaptures(inboxCaptures ?? []);
+              setTodos(backupTodos ?? []);
               setCustomCategories(customCategories ?? []);
               setCategoryOverrides(categoryOverrides ?? []);
               setDeletedDefaultCategoryIds(deletedDefaultCategoryIds ?? []);

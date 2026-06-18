@@ -29,6 +29,17 @@ export interface InboxCapture {
   content: string;
   sourceText?: string;
   createdAt: string;
+  intendedType?: 'card' | 'todo';
+}
+
+export interface Todo {
+  id: string;
+  title: string;
+  content?: string;
+  completed: boolean;
+  parentId?: string;
+  createdAt: string;
+  relatedAddresses?: string[];
 }
 
 export interface CustomCategory extends Category {

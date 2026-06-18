@@ -5,11 +5,13 @@ import {
   CustomCategory,
   CategoryOverride,
   AppSettings,
+  Todo,
 } from '../../types';
 
 interface DataState {
   cards: Card[];
   inboxCaptures: InboxCapture[];
+  todos: Todo[];
   customCategories: CustomCategory[];
   categoryOverrides: CategoryOverride[];
   deletedDefaultCategoryIds: string[];
@@ -25,6 +27,7 @@ interface DataState {
   isAskingCards: boolean;
   setCards: (cards: Card[]) => void;
   setInboxCaptures: (captures: InboxCapture[]) => void;
+  setTodos: (todos: Todo[]) => void;
   setCustomCategories: (categories: CustomCategory[]) => void;
   setCategoryOverrides: (overrides: CategoryOverride[]) => void;
   setDeletedDefaultCategoryIds: (ids: string[]) => void;
@@ -44,6 +47,7 @@ interface DataState {
 export const useDataStore = create<DataState>((set, get) => ({
   cards: [],
   inboxCaptures: [],
+  todos: [],
   customCategories: [],
   categoryOverrides: [],
   deletedDefaultCategoryIds: [],
@@ -59,6 +63,7 @@ export const useDataStore = create<DataState>((set, get) => ({
   isAskingCards: false,
   setCards: (cards) => set({ cards }),
   setInboxCaptures: (inboxCaptures) => set({ inboxCaptures }),
+  setTodos: (todos) => set({ todos }),
   setCustomCategories: (customCategories) => set({ customCategories }),
   setCategoryOverrides: (categoryOverrides) => set({ categoryOverrides }),
   setDeletedDefaultCategoryIds: (deletedDefaultCategoryIds) => set({ deletedDefaultCategoryIds }),

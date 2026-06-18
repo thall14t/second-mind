@@ -54,6 +54,8 @@ function loadModules() {
     buildCaptureProcessingJobViews,
     buildCaptureProcessingLabel,
     getCaptureJobStatusLabel,
+    getInboxCaptureStructuredDraft,
+    inboxCaptureIsReadyToFile,
   } = require(path.join(buildDir, 'utils', 'captureJobs.js'));
 
   return {
@@ -62,6 +64,8 @@ function loadModules() {
     buildCaptureProcessingJobViews,
     buildCaptureProcessingLabel,
     getCaptureJobStatusLabel,
+    getInboxCaptureStructuredDraft,
+    inboxCaptureIsReadyToFile,
     createCaptureJob,
     getActiveProcessingJobs,
     mapTodoGenerationToTodos,
@@ -87,6 +91,8 @@ function runTests() {
     buildCaptureProcessingJobViews,
     buildCaptureProcessingLabel,
     getCaptureJobStatusLabel,
+    getInboxCaptureStructuredDraft,
+    inboxCaptureIsReadyToFile,
   } = loadModules();
 
   const signals = buildClassificationLocalSignals('', '- buy milk\n- call dentist\n1. finish report');
@@ -166,6 +172,9 @@ function runTests() {
   );
   assert.strictEqual(enriched.intendedType, 'card');
   assert.strictEqual(enriched.enrichment?.jobId, 'job-1');
+  assert.strictEqual(getInboxCaptureStructuredDraft(enriched)?.suggestedTitle, 'Title');
+  assert.strictEqual(inboxCaptureIsReadyToFile(enriched), true);
+  assert.strictEqual(inboxCaptureIsReadyToFile({ id: 'raw', title: 'T', content: 'Body', createdAt: '2026-01-01T00:00:00.000Z' }), false);
 
   console.log('All capture job utils tests passed.');
 }

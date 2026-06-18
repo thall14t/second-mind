@@ -245,6 +245,16 @@ export function buildLocalTodoGenerationResult(todos: Todo[]): TodoGenerationRes
   };
 }
 
+export function getInboxCaptureStructuredDraft(
+  capture: InboxCapture
+): CaptureStructuringResult | undefined {
+  return capture.enrichment?.structuredDraft;
+}
+
+export function inboxCaptureIsReadyToFile(capture: InboxCapture): boolean {
+  return Boolean(getInboxCaptureStructuredDraft(capture));
+}
+
 export function applyEnrichmentToCapture(
   capture: InboxCapture,
   enrichment: CaptureStructuringResult,

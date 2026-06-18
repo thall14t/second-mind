@@ -74,7 +74,11 @@ import {
   validateCategoryAddress,
 } from './utils/antinet';
 import { parseTodosFromCapture } from './utils/todoParsing';
-import { buildCaptureProcessingJobViews, pruneCaptureJobs } from './utils/captureJobs';
+import {
+  buildCaptureProcessingJobViews,
+  getInboxCaptureStructuredDraft,
+  pruneCaptureJobs,
+} from './utils/captureJobs';
 import { normalizeTodoDueDateInput } from './utils/todoDates';
 import {
   collectDescendantIds,
@@ -1600,7 +1604,11 @@ export default function App() {
   };
 
   const fileInboxCapture = (capture: InboxCapture) => {
-    loadCaptureIntoCardForm(capture, capture.id);
+    loadCaptureIntoCardForm(
+      capture,
+      capture.id,
+      getInboxCaptureStructuredDraft(capture)
+    );
   };
 
   const fileInboxCaptureWithAi = (capture: InboxCapture) => {

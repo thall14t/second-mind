@@ -127,6 +127,38 @@ function runTests() {
   assert.deepStrictEqual(generated.todos[1].relatedAddresses, ['0102a']);
   assert.strictEqual(generated.confidenceBand, 'medium');
 
+  const clarifying = normalizeTodoGenerationResult(
+    {
+      todos: [{ clientId: 'root', title: 'Laundry', parentClientId: '', sortOrder: 0 }],
+      corrections: [],
+      confidence: 0.7,
+      needsClarification: true,
+      clarificationPrompt: 'When do guests arrive?',
+      inputType: 'free_text',
+    },
+    {}
+  );
+  assert.strictEqual(clarifying.needsClarification, true);
+  assert.strictEqual(clarifying.clarificationPrompt, 'When do guests arrive?');
+  assert.strictEqual(clarifying.inputType, 'free_text');
+
+  const clarificationContext = prepareGenerateTodosContext({
+    capture: { title: 'Laundry', content: 'Do before guests arrive' },
+    localDraft: { todos: [] },
+    clarification: {
+      round: 2,
+      answers: [{
+        stage: 'generate_todos',
+        prompt: 'When do guests arrive?',
+        answer: 'Saturday afternoon',
+      }],
+      partialTodos: [{ clientId: 'root', title: 'Laundry', parentClientId: '', sortOrder: 0 }],
+    },
+  });
+  assert.strictEqual(clarificationContext.clarification.answers.length, 1);
+  assert.match(clarificationContext.outputRules.dueDates, /preserve the phrase in todo content/);
+  assert.match(clarificationContext.outputRules.clarification, /materially improve/);
+
   console.log('All capture routing server tests passed.');
 }
 

@@ -1,10 +1,12 @@
 import {
   CaptureClassificationResult,
   CaptureClassifyLocalSignals,
+  CaptureClarificationState,
   CaptureJob,
   CaptureJobStatus,
   CaptureRoute,
   CaptureStructuringResult,
+  CaptureTodoClarificationContext,
   CardFilingSuggestion,
   InboxCapture,
   InboxCaptureEnrichment,
@@ -279,6 +281,8 @@ export function inferObviousCaptureRoute(
 
 const CLASSIFICATION_CLARIFICATION_MAX_CONFIDENCE = 0.42;
 
+export const MAX_CAPTURE_CLARIFICATION_ROUNDS = 2;
+
 export function finalizeCaptureClassification(
   result: CaptureClassificationResult
 ): CaptureClassificationResult {
@@ -308,6 +312,73 @@ export function finalizeCaptureClassification(
   }
 
   return result;
+}
+
+export function buildClassifyClarificationState(
+  classification: CaptureClassificationResult
+): CaptureClarificationState | undefined {
+  if (!classification.needsClarification) {
+    return undefined;
+  }
+
+  return {
+    stage: 'classify',
+    prompt: classification.clarificationPrompt?.trim() || 'Is this a note for your library or a task list?',
+    inputType: 'route_choice',
+    round: 1,
+  };
+}
+
+export function buildTodoClarificationState(
+  generation: TodoGenerationResult,
+  round: number
+): CaptureClarificationState | undefined {
+  if (!generation.needsClarification || !generation.clarificationPrompt?.trim()) {
+    return undefined;
+  }
+
+  return {
+    stage: 'generate_todos',
+    prompt: generation.clarificationPrompt.trim(),
+    inputType: generation.inputType === 'date' ? 'date' : 'free_text',
+    round,
+  };
+}
+
+export function finalizeTodoGenerationResult(
+  result: TodoGenerationResult,
+  clarificationRound: number
+): TodoGenerationResult {
+  if (!result.needsClarification || !result.clarificationPrompt?.trim()) {
+    return result;
+  }
+
+  if (clarificationRound >= MAX_CAPTURE_CLARIFICATION_ROUNDS) {
+    return {
+      ...result,
+      needsClarification: false,
+      clarificationPrompt: undefined,
+      inputType: undefined,
+    };
+  }
+
+  return result;
+}
+
+export function buildTodoGenerationClarificationContext(
+  job?: Pick<CaptureJob, 'clarificationAnswers' | 'todoGeneration'>
+): CaptureTodoClarificationContext | undefined {
+  const answers = job?.clarificationAnswers?.filter(entry => entry.stage === 'generate_todos') ?? [];
+  const partialTodos = job?.todoGeneration?.todos;
+  if (answers.length === 0 && (!partialTodos || partialTodos.length === 0)) {
+    return undefined;
+  }
+
+  return {
+    round: answers.length + 1,
+    answers,
+    partialTodos: partialTodos?.length ? partialTodos : undefined,
+  };
 }
 
 export function buildAiUnavailableClassificationFallback(
@@ -781,6 +852,8 @@ export function buildCaptureProcessingJobViews(
 export interface CaptureClarificationJobView {
   jobId: string;
   captureId: string;
+  stage: CaptureClarificationState['stage'];
+  inputType: CaptureClarificationState['inputType'];
   prompt: string;
   previewTitle: string;
   previewContent: string;
@@ -794,15 +867,33 @@ export function buildCaptureClarificationViews(
 
   return getAwaitingClarificationJobs(jobs).map(job => {
     const preview = buildCaptureJobPreview(captureById.get(job.captureId));
+    const clarification = job.clarification;
     return {
       jobId: job.id,
       captureId: job.captureId,
-      prompt: job.classification?.clarificationPrompt?.trim()
-        || 'This could be a library note or a task list. Which fits better?',
+      stage: clarification?.stage ?? 'classify',
+      inputType: clarification?.inputType ?? 'route_choice',
+      prompt: clarification?.prompt?.trim()
+        || job.classification?.clarificationPrompt?.trim()
+        || 'Second Mind needs one detail before it can finish this capture.',
       previewTitle: preview.previewTitle,
       previewContent: preview.previewContent,
     };
   });
+}
+
+export function buildCaptureClarificationBannerHint(
+  job: Pick<CaptureClarificationJobView, 'inputType' | 'stage'>
+): string {
+  if (job.stage === 'classify' || job.inputType === 'route_choice') {
+    return 'Tap to choose library note or task list';
+  }
+
+  if (job.inputType === 'date') {
+    return 'Tap to answer with a date';
+  }
+
+  return 'Tap to answer one quick question';
 }
 
 export function buildCaptureClarificationLabel(count: number): string {

@@ -94,12 +94,39 @@ export interface TodoGenerationDraft {
   relatedAddresses?: string[];
 }
 
+export type CaptureClarificationStage = 'classify' | 'generate_todos';
+
+export type CaptureClarificationInputType = 'route_choice' | 'free_text' | 'date';
+
+export interface CaptureClarificationState {
+  stage: CaptureClarificationStage;
+  prompt: string;
+  inputType: CaptureClarificationInputType;
+  round: number;
+}
+
+export interface CaptureClarificationAnswer {
+  stage: CaptureClarificationStage;
+  prompt: string;
+  answer: string;
+  answeredAt: string;
+}
+
+export interface CaptureTodoClarificationContext {
+  round: number;
+  answers: CaptureClarificationAnswer[];
+  partialTodos?: TodoGenerationDraft[];
+}
+
 export interface TodoGenerationResult {
   todos: TodoGenerationDraft[];
   corrections?: string[];
   confidence?: number;
   confidenceBand?: AiDecisionConfidenceBand;
   strategy?: 'local' | 'ai' | 'merged';
+  needsClarification?: boolean;
+  clarificationPrompt?: string;
+  inputType?: Exclude<CaptureClarificationInputType, 'route_choice'>;
 }
 
 export interface ExistingTodoSummary {
@@ -120,6 +147,7 @@ export interface CaptureGenerateTodosPayload {
     existingCardAddresses?: string[];
     existingTodos?: ExistingTodoSummary[];
   };
+  clarification?: CaptureTodoClarificationContext;
 }
 
 export interface CaptureEnrichPayload {
@@ -135,6 +163,8 @@ export interface CaptureJob {
   updatedAt: string;
   userRouteOverride?: CaptureRoute;
   classification?: CaptureClassificationResult;
+  clarification?: CaptureClarificationState;
+  clarificationAnswers?: CaptureClarificationAnswer[];
   enrichment?: CaptureStructuringResult;
   todoGeneration?: TodoGenerationResult;
   error?: string;
@@ -212,6 +242,11 @@ export interface FilingLeafDecision extends FilingDecisionBase {
   suggestedCardAddress: string;
 }
 
+export interface FilingWhyContext {
+  considered: string;
+  notApplied: string;
+}
+
 export interface CardFilingSuggestion extends FilingLeafDecision {
   suggestedTitle: string;
   suggestedContent: string;
@@ -221,6 +256,7 @@ export interface CardFilingSuggestion extends FilingLeafDecision {
   suggestedSource?: CardSource;
   corrections?: string[];
   alternativeSuggestions?: CardFilingSuggestion[];
+  filingWhy?: FilingWhyContext;
 }
 
 export interface CaptureStructuringResult {

@@ -27,7 +27,7 @@ const captureClassificationSchema = {
 const todoGenerationSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['todos', 'corrections', 'confidence'],
+  required: ['todos', 'corrections', 'confidence', 'needsClarification', 'clarificationPrompt', 'inputType'],
   properties: {
     todos: {
       type: 'array',
@@ -51,6 +51,9 @@ const todoGenerationSchema = {
     },
     corrections: { type: 'array', items: { type: 'string' } },
     confidence: { type: 'number' },
+    needsClarification: { type: 'boolean' },
+    clarificationPrompt: { type: 'string' },
+    inputType: { type: 'string', enum: ['none', 'free_text', 'date'] },
   },
 };
 
@@ -139,6 +142,10 @@ function prepareGenerateTodosContext(body) {
     }))
     .filter(todo => todo.title);
 
+  const clarification = body?.clarification ?? null;
+  const clarificationAnswers = Array.isArray(clarification?.answers) ? clarification.answers : [];
+  const partialTodos = Array.isArray(clarification?.partialTodos) ? clarification.partialTodos : [];
+
   return {
     task: 'Turn this rough capture into a structured nestable todo tree.',
     capture: {
@@ -164,15 +171,36 @@ function prepareGenerateTodosContext(body) {
       existingCardAddresses: Array.from(allowedAddresses),
       existingTodos,
     },
+    clarification: clarification
+      ? {
+          round: Number.isFinite(Number(clarification.round)) ? Number(clarification.round) : 1,
+          answers: clarificationAnswers.slice(-4).map(entry => ({
+            prompt: String(entry?.prompt || '').trim(),
+            answer: String(entry?.answer || '').trim(),
+            stage: String(entry?.stage || 'generate_todos'),
+          })).filter(entry => entry.prompt && entry.answer),
+          partialTodos: partialTodos.slice(0, 40).map((todo, index) => ({
+            clientId: String(todo.clientId || todo.id || `partial-${index}`),
+            title: String(todo.title || ''),
+            content: String(todo.content || ''),
+            parentClientId: String(todo.parentClientId || todo.parentId || ''),
+            sortOrder: Number.isFinite(Number(todo.sortOrder)) ? Number(todo.sortOrder) : index,
+            dueDate: String(todo.dueDate || ''),
+          })).filter(todo => todo.title),
+        }
+      : null,
     outputRules: {
       authority: 'You are the authoritative todo generation step. Build the todo tree directly from capture text. localDraft may be empty.',
-      nesting: 'Preserve parent and child structure using clientId and parentClientId. Use an empty parentClientId for root todos.',
+      nesting: 'Preserve parent and child structure using clientId and parentClientId. Use an empty parentClientId for root todos. Multi-level nesting is allowed.',
       appendToExistingList: 'When the capture adds one or more tasks to an existing list (e.g. "add wipe counters to house chores" or "add X to that list"), return ONLY the new todos. Set each new todo parentClientId to the matching existing parent clientId from context.existingTodos. Do not recreate the parent list or duplicate existing children.',
-      dueDates: 'Infer dueDate only when explicit or strongly implied. Use YYYY-MM-DD.',
+      dueDates: 'Infer dueDate only when explicit or strongly implied. Use YYYY-MM-DD. If timing cannot map to YYYY-MM-DD, preserve the phrase in todo content instead of dropping it.',
       relatedAddresses: 'Set relatedAddresses only when the capture clearly references one of the provided existing card addresses.',
       restraint: 'Improve titles and grouping, but do not invent tasks the capture does not imply.',
       flattening: 'Do not flatten a real list into one todo unless the capture truly has one item.',
       clientIds: 'Return stable clientId values for every todo.',
+      clarification: 'Set needsClarification true only when one targeted user answer would materially improve the result (for example an unparseable deadline needed for scheduling). Ask at most one concise question. If a reasonable default exists, complete without asking.',
+      clarificationResume: 'When clarification.answers is present, incorporate the user answers and finish the todo tree. Do not ask another question unless absolutely necessary.',
+      inputType: 'When asking, set inputType to free_text or date. Use none when needsClarification is false.',
     },
   };
 }
@@ -308,6 +336,10 @@ function normalizeTodoGenerationResult(raw, body) {
     })
     .filter(todo => todo.title);
 
+  const needsClarification = Boolean(raw?.needsClarification);
+  const clarificationPrompt = String(raw?.clarificationPrompt || '').trim();
+  const inputType = raw?.inputType === 'date' ? 'date' : raw?.inputType === 'free_text' ? 'free_text' : undefined;
+
   return {
     todos,
     corrections: Array.isArray(raw?.corrections)
@@ -316,6 +348,9 @@ function normalizeTodoGenerationResult(raw, body) {
     confidence,
     confidenceBand: toConfidenceBand(confidence),
     strategy: 'ai',
+    needsClarification: needsClarification && clarificationPrompt.length > 0,
+    clarificationPrompt: needsClarification && clarificationPrompt ? clarificationPrompt : undefined,
+    inputType: needsClarification && clarificationPrompt ? inputType ?? 'free_text' : undefined,
   };
 }
 
@@ -427,10 +462,12 @@ async function requestGenerateTodos(body, deps) {
                 'You generate structured nestable todos from rough Second Mind captures.',
                 'You are the authoritative structuring step. Build the todo tree directly from capture text.',
                 'localDraft may be empty; do not depend on it. Improve titles, nesting, due dates, and card links yourself.',
-                'Return clientId and parentClientId for every todo. Use an empty parentClientId for root todos.',
+                'Return clientId and parentClientId for every todo. Use an empty parentClientId for root todos. Multi-level nesting is allowed.',
                 'Only set relatedAddresses when the capture clearly references one of the provided existing card addresses.',
-                'Infer dueDate only when explicit or strongly implied, using YYYY-MM-DD.',
+                'Infer dueDate only when explicit or strongly implied, using YYYY-MM-DD. If timing cannot map to YYYY-MM-DD, preserve the phrase in todo content.',
                 'Do not invent tasks the capture does not imply.',
+                'Set needsClarification true only when one targeted user answer would materially improve the result. Ask one concise question. Otherwise complete with reasonable defaults.',
+                'When clarification answers are provided in the payload, incorporate them and finish without asking again unless absolutely necessary.',
                 'Return only the schema fields.',
               ].join(' '),
             },
@@ -473,7 +510,7 @@ async function requestGenerateTodos(body, deps) {
   const parsed = JSON.parse(outputText);
   const result = normalizeTodoGenerationResult(parsed, body);
   console.log(
-    `[AI] generate-todos total=${Date.now() - requestStartedAt}ms todos=${result.todos.length} chars=${String(body?.capture?.content || '').length}`
+    `[AI] generate-todos total=${Date.now() - requestStartedAt}ms todos=${result.todos.length} clarify=${result.needsClarification ? 'yes' : 'no'} chars=${String(body?.capture?.content || '').length}`
   );
 
   return result;

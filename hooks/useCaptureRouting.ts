@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import {
   CaptureClassificationResult,
   CaptureStructuringResult,
+  CaptureJob,
   Card,
   CardFilingSuggestion,
   InboxCapture,
@@ -26,9 +27,13 @@ import {
   applyEnrichmentToCapture,
   buildAiUnavailableClassificationFallback,
   buildClassificationLocalSignals,
+  buildTodoClarificationState,
+  buildTodoGenerationClarificationContext,
   finalizeCaptureClassification,
+  finalizeTodoGenerationResult,
   buildLocalTodoGenerationResult,
   buildUserOverrideClassification,
+  MAX_CAPTURE_CLARIFICATION_ROUNDS,
 } from '../utils/captureJobs';
 import {
   buildExistingTodoSummariesForGeneration,
@@ -232,8 +237,10 @@ export const useCaptureRouting = ({
   }, [getCards, getEnrichEndpoint]);
 
   const requestTodoGeneration = useCallback(async (
-    capture: InboxCapture
+    capture: InboxCapture,
+    job?: CaptureJob
   ): Promise<TodoGenerationResult> => {
+    const clarification = buildTodoGenerationClarificationContext(job);
     const payload = {
       capture: {
         id: capture.id,
@@ -250,6 +257,7 @@ export const useCaptureRouting = ({
         existingCardAddresses: getCardAddresses().slice(0, 50),
         existingTodos: buildExistingTodoSummariesForGeneration(getTodos()),
       },
+      ...(clarification ? { clarification } : {}),
     };
     const endpoint = getGenerateTodosEndpoint();
     const cacheKey = buildAiRequestCacheKey(endpoint, payload);
@@ -272,10 +280,11 @@ export const useCaptureRouting = ({
             throw new Error(data.error || 'Todo generation failed.');
           }
 
-          return {
+          const clarificationRound = clarification?.round ?? 1;
+          return finalizeTodoGenerationResult({
             ...data.result,
             strategy: data.result.strategy ?? 'ai',
-          };
+          }, clarificationRound);
         })().finally(() => {
           generateInFlightRef.current.delete(cacheKey);
         });
@@ -389,7 +398,22 @@ export const useCaptureRouting = ({
     jobId: string,
     capture: InboxCapture
   ) => {
-    const generation = await requestTodoGeneration(capture);
+    const job = captureJobsApi.getJobById(jobId);
+    const generation = await requestTodoGeneration(capture, job ?? undefined);
+    const clarificationRound = job?.clarificationAnswers?.filter(entry => entry.stage === 'generate_todos').length ?? 0;
+    const clarificationState = buildTodoClarificationState(
+      generation,
+      clarificationRound + 1
+    );
+
+    if (
+      clarificationState
+      && clarificationRound + 1 < MAX_CAPTURE_CLARIFICATION_ROUNDS
+    ) {
+      await captureJobsApi.recordClarificationRequest(jobId, clarificationState, generation);
+      return;
+    }
+
     const existingTodos = getTodos();
     const mergedTodos = mergeTodoGenerationIntoExisting(generation, existingTodos, capture);
     const newTodoCount = mergedTodos.length - existingTodos.length;
@@ -413,16 +437,35 @@ export const useCaptureRouting = ({
   const runCaptureJobPipeline = useCallback(async (
     jobId: string,
     capture: InboxCapture,
-    options?: { userRouteOverride?: 'card' | 'todo' | null }
+    options?: {
+      userRouteOverride?: 'card' | 'todo' | null;
+      resumeFromTodoGeneration?: boolean;
+    }
   ) => {
     try {
       const userRouteOverride = options?.userRouteOverride ?? null;
-      let classification: CaptureClassificationResult;
+      const resumeFromTodoGeneration = options?.resumeFromTodoGeneration ?? false;
+      const existingJob = captureJobsApi.getJobById(jobId);
+      let classification: CaptureClassificationResult | undefined = existingJob?.classification;
+
+      if (resumeFromTodoGeneration) {
+        if (!classification && userRouteOverride) {
+          classification = buildUserOverrideClassification(userRouteOverride);
+        }
+        if (!classification || (classification.route !== 'todo' && userRouteOverride !== 'todo')) {
+          await captureJobsApi.markJobFailed(jobId, 'Todo clarification resume failed because route was not todo.');
+          return;
+        }
+
+        await captureJobsApi.setJobStatus(jobId, 'generating_todos');
+        await completeTodoRoute(jobId, capture);
+        return;
+      }
 
       if (userRouteOverride === 'card' || userRouteOverride === 'todo') {
         classification = buildUserOverrideClassification(userRouteOverride);
         await captureJobsApi.recordClassification(jobId, classification);
-      } else {
+      } else if (!classification) {
         await captureJobsApi.setJobStatus(jobId, 'classifying');
         classification = await requestCaptureClassification(capture, null);
         const updatedJob = await captureJobsApi.recordClassification(jobId, classification);
@@ -435,7 +478,7 @@ export const useCaptureRouting = ({
         }
       }
 
-      const route = userRouteOverride ?? classification.route;
+      const route = userRouteOverride ?? classification?.route;
       if (route === 'card') {
         await completeCardRoute(jobId, capture);
         return;
@@ -478,10 +521,34 @@ export const useCaptureRouting = ({
     void runCaptureJobPipeline(jobId, capture, { userRouteOverride });
   }, [captureJobsApi, getInboxCaptures, runCaptureJobPipeline]);
 
+  const resumeCaptureClarification = useCallback(async (
+    jobId: string,
+    answer: string
+  ) => {
+    const job = captureJobsApi.getJobById(jobId);
+    if (!job) {
+      return;
+    }
+
+    const capture = getInboxCaptures().find(item => item.id === job.captureId);
+    if (!capture) {
+      await captureJobsApi.markJobFailed(jobId, 'Capture no longer exists in the inbox.');
+      return;
+    }
+
+    const updatedJob = await captureJobsApi.applyClarificationAnswer(jobId, answer);
+    if (!updatedJob) {
+      return;
+    }
+
+    void runCaptureJobPipeline(jobId, capture, { resumeFromTodoGeneration: true });
+  }, [captureJobsApi, getInboxCaptures, runCaptureJobPipeline]);
+
   return {
     submitQuickCapture,
     runCaptureJobPipeline,
     resumeCaptureJob,
+    resumeCaptureClarification,
     requestCaptureClassification,
     requestCaptureEnrichment,
     requestTodoGeneration,

@@ -325,8 +325,9 @@ function printReport(results) {
 }
 
 async function main() {
+  const healthTimeoutMs = /localhost|127\.0\.0\.1/.test(BASE_URL) ? 3000 : 60_000;
   try {
-    const healthRes = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    const healthRes = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(healthTimeoutMs) });
     if (!healthRes.ok) throw new Error(`health ${healthRes.status}`);
   } catch (error) {
     console.error(`AI server not reachable at ${BASE_URL}. Start it with: npm run ai-server`);

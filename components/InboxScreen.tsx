@@ -132,7 +132,7 @@ export default function InboxScreen({
 
               {displayStatus === 'awaiting_clarification' ? (
                 <Text style={[styles.inboxReadyHint, { color: theme.text }]}>
-                  Second Mind is not sure whether this is a library note or a task list.
+                  Second Mind needs your input before it can finish this capture.
                 </Text>
               ) : null}
 
@@ -150,7 +150,7 @@ export default function InboxScreen({
                     onPress={() => onResolveCaptureType(capture)}
                   >
                     <Text style={[styles.inboxActionButtonText, { color: theme.primaryButtonText }]}>
-                      Choose Type
+                      Respond
                     </Text>
                   </TouchableOpacity>
                 </View>

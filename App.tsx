@@ -79,6 +79,7 @@ import {
   validateCategoryAddress,
 } from './utils/antinet';
 import {
+  buildCaptureClarificationBannerHint,
   buildCaptureClarificationLabel,
   buildCaptureClarificationViews,
   buildCaptureProcessingJobViews,
@@ -806,7 +807,7 @@ export default function App() {
     inboxCaptures,
   });
 
-  const { submitQuickCapture, resumeCaptureJob, requestTodoGeneration } = useCaptureRouting({
+  const { submitQuickCapture, resumeCaptureJob, resumeCaptureClarification, requestTodoGeneration } = useCaptureRouting({
     getAiBaseEndpoint,
     captureJobsApi,
     getInboxCaptures: () => useDataStore.getState().inboxCaptures,
@@ -1930,6 +1931,17 @@ export default function App() {
     [clarificationJobs, clarificationModalJobId]
   );
 
+  const clarificationBannerHint = useMemo(() => {
+    const nextJob = clarificationJobs.find(
+      job => !dismissedClarificationJobIds.includes(job.jobId)
+        && !resolvingClarificationJobIds.includes(job.jobId)
+    ) ?? clarificationJobs[0];
+
+    return nextJob
+      ? buildCaptureClarificationBannerHint(nextJob)
+      : 'Tap to answer one quick question';
+  }, [clarificationJobs, dismissedClarificationJobIds, resolvingClarificationJobIds]);
+
   const openClarificationModal = useCallback((jobId?: string) => {
     const targetJob = jobId
       ? clarificationJobs.find(job => job.jobId === jobId)
@@ -1962,6 +1974,27 @@ export default function App() {
       setResolvingClarificationJobIds(previous => previous.filter(id => id !== jobId));
     }
   }, [clarificationModalJobId, resumeCaptureJob]);
+
+  const handleSubmitClarificationAnswer = useCallback(async (answer: string) => {
+    if (!clarificationModalJobId) {
+      return;
+    }
+
+    const jobId = clarificationModalJobId;
+    setClarificationModalJobId(null);
+    setResolvingClarificationJobIds(previous => (
+      previous.includes(jobId) ? previous : [...previous, jobId]
+    ));
+    setDismissedClarificationJobIds(previous => (
+      previous.includes(jobId) ? previous : [...previous, jobId]
+    ));
+
+    try {
+      await resumeCaptureClarification(jobId, answer);
+    } finally {
+      setResolvingClarificationJobIds(previous => previous.filter(id => id !== jobId));
+    }
+  }, [clarificationModalJobId, resumeCaptureClarification]);
 
   const handleDismissClarification = useCallback(() => {
     if (!clarificationModalJobId) {
@@ -2007,6 +2040,7 @@ export default function App() {
       todoCount={openTodoCount}
       processingJobs={processingJobs}
       clarificationLabel={buildCaptureClarificationLabel(clarificationJobs.length)}
+      clarificationHint={clarificationBannerHint}
       onOpenClarification={() => openClarificationModal()}
       darkMode={settings.darkMode}
       onAskCards={() => setCurrentScreen('askCards')}
@@ -2469,6 +2503,7 @@ export default function App() {
           visible={clarificationModalJobId !== null}
           onChooseCard={() => { void handleChooseClarificationRoute('card'); }}
           onChooseTodo={() => { void handleChooseClarificationRoute('todo'); }}
+          onSubmitAnswer={(answer) => { void handleSubmitClarificationAnswer(answer); }}
           onDecideLater={handleDismissClarification}
         />
       </View>

@@ -13,6 +13,7 @@ interface HomeScreenProps {
   todoCount: number;
   processingJobs: CaptureProcessingJobView[];
   clarificationLabel: string;
+  clarificationHint: string;
   onOpenClarification: () => void;
   darkMode: boolean;
   onAskCards: () => void;
@@ -32,6 +33,7 @@ export default function HomeScreen({
   todoCount,
   processingJobs,
   clarificationLabel,
+  clarificationHint,
   onOpenClarification,
   darkMode,
   onAskCards,
@@ -127,6 +129,7 @@ export default function HomeScreen({
       <CaptureClarificationBanner
         darkMode={darkMode}
         label={clarificationLabel}
+        hint={clarificationHint}
         onPress={onOpenClarification}
       />
 

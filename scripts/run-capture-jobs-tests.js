@@ -66,6 +66,12 @@ function loadModules() {
     getInboxCaptureStatusLabel,
     buildCaptureClarificationViews,
     buildCaptureClarificationLabel,
+    buildCaptureClarificationBannerHint,
+    buildClassifyClarificationState,
+    buildTodoClarificationState,
+    finalizeTodoGenerationResult,
+    buildTodoGenerationClarificationContext,
+    MAX_CAPTURE_CLARIFICATION_ROUNDS,
   } = require(path.join(buildDir, 'utils', 'captureJobs.js'));
 
   return {
@@ -86,6 +92,12 @@ function loadModules() {
     getInboxCaptureStatusLabel,
     buildCaptureClarificationViews,
     buildCaptureClarificationLabel,
+    buildCaptureClarificationBannerHint,
+    buildClassifyClarificationState,
+    buildTodoClarificationState,
+    finalizeTodoGenerationResult,
+    buildTodoGenerationClarificationContext,
+    MAX_CAPTURE_CLARIFICATION_ROUNDS,
     createCaptureJob,
     getActiveProcessingJobs,
     mapTodoGenerationToTodos,
@@ -123,6 +135,12 @@ function runTests() {
     getInboxCaptureStatusLabel,
     buildCaptureClarificationViews,
     buildCaptureClarificationLabel,
+    buildCaptureClarificationBannerHint,
+    buildClassifyClarificationState,
+    buildTodoClarificationState,
+    finalizeTodoGenerationResult,
+    buildTodoGenerationClarificationContext,
+    MAX_CAPTURE_CLARIFICATION_ROUNDS,
   } = loadModules();
 
   const signals = buildClassificationLocalSignals('', '- buy milk\n- call dentist\n1. finish report');
@@ -338,7 +356,55 @@ function runTests() {
   );
   assert.strictEqual(clarificationViews.length, 1);
   assert.strictEqual(clarificationViews[0].prompt, 'Library note or errands?');
+  assert.strictEqual(clarificationViews[0].inputType, 'route_choice');
   assert.strictEqual(buildCaptureClarificationLabel(2), '2 captures need your input');
+  assert.match(
+    buildCaptureClarificationBannerHint({ stage: 'generate_todos', inputType: 'free_text' }),
+    /quick question/
+  );
+
+  const classifyClarification = buildClassifyClarificationState({
+    route: 'todo',
+    confidence: 0.2,
+    confidenceBand: 'low',
+    reasoning: 'Ambiguous',
+    needsClarification: true,
+    clarificationPrompt: 'Note or tasks?',
+  });
+  assert.strictEqual(classifyClarification?.inputType, 'route_choice');
+
+  const todoClarification = buildTodoClarificationState({
+    todos: [{ clientId: 'a', title: 'Laundry', parentClientId: null, sortOrder: 0 }],
+    needsClarification: true,
+    clarificationPrompt: 'When do guests arrive?',
+    inputType: 'free_text',
+    strategy: 'ai',
+  }, 1);
+  assert.strictEqual(todoClarification?.stage, 'generate_todos');
+
+  const suppressed = finalizeTodoGenerationResult({
+    todos: [],
+    needsClarification: true,
+    clarificationPrompt: 'Need a date',
+    inputType: 'date',
+    strategy: 'ai',
+  }, MAX_CAPTURE_CLARIFICATION_ROUNDS);
+  assert.strictEqual(suppressed.needsClarification, false);
+
+  const clarificationContext = buildTodoGenerationClarificationContext({
+    clarificationAnswers: [{
+      stage: 'generate_todos',
+      prompt: 'When do guests arrive?',
+      answer: 'Saturday',
+      answeredAt: '2026-06-18T00:00:00.000Z',
+    }],
+    todoGeneration: {
+      todos: [{ clientId: 'root', title: 'Laundry', parentClientId: null, sortOrder: 0 }],
+      strategy: 'ai',
+    },
+  });
+  assert.strictEqual(clarificationContext?.answers.length, 1);
+  assert.strictEqual(clarificationContext?.partialTodos?.length, 1);
 
   console.log('All capture job utils tests passed.');
 }

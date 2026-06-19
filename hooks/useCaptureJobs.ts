@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useDataStore } from '../utils/stores/dataStore';
 import {
   CaptureClassificationResult,
+  CaptureClarificationState,
   CaptureJob,
   CaptureJobStatus,
   CaptureRoute,
@@ -10,6 +11,7 @@ import {
   TodoGenerationResult,
 } from '../types';
 import {
+  buildClassifyClarificationState,
   createCaptureJob,
   getActiveProcessingJobs,
   getAwaitingClarificationJobs,
@@ -103,6 +105,7 @@ export const useCaptureJobs = ({
     return updateJob(jobId, {
       status,
       classification,
+      clarification: buildClassifyClarificationState(classification),
       error: undefined,
     });
   }, [updateJob]);
@@ -141,9 +144,54 @@ export const useCaptureJobs = ({
     return updateJob(jobId, {
       userRouteOverride: route,
       status,
+      clarification: undefined,
       error: undefined,
     });
   }, [updateJob]);
+
+  const recordClarificationRequest = useCallback(async (
+    jobId: string,
+    clarification: CaptureClarificationState,
+    partialTodoGeneration?: TodoGenerationResult
+  ) => updateJob(jobId, {
+    status: 'awaiting_clarification',
+    clarification,
+    todoGeneration: partialTodoGeneration,
+    error: undefined,
+  }), [updateJob]);
+
+  const applyClarificationAnswer = useCallback(async (
+    jobId: string,
+    answer: string
+  ) => {
+    const job = getCaptureJobById(getCurrentJobs(), jobId);
+    if (!job?.clarification) {
+      return null;
+    }
+
+    const trimmedAnswer = answer.trim();
+    if (!trimmedAnswer) {
+      return null;
+    }
+
+    const entry = {
+      stage: job.clarification.stage,
+      prompt: job.clarification.prompt,
+      answer: trimmedAnswer,
+      answeredAt: new Date().toISOString(),
+    };
+
+    const nextStatus: CaptureJobStatus = job.clarification.stage === 'generate_todos'
+      ? 'generating_todos'
+      : (job.userRouteOverride === 'card' ? 'enriching' : 'generating_todos');
+
+    return updateJob(jobId, {
+      status: nextStatus,
+      clarificationAnswers: [...(job.clarificationAnswers ?? []), entry],
+      clarification: undefined,
+      error: undefined,
+    });
+  }, [getCurrentJobs, updateJob]);
 
   return {
     jobs,
@@ -162,6 +210,8 @@ export const useCaptureJobs = ({
     markJobCompleted,
     markJobFailed,
     applyUserRouteOverride,
+    recordClarificationRequest,
+    applyClarificationAnswer,
     pruneJobs: () => persistJobs(pruneCaptureJobs(getCurrentJobs(), getCurrentInboxCaptures())),
   };
 };

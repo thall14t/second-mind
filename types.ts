@@ -137,9 +137,17 @@ export interface ExistingTodoSummary {
   completed: boolean;
 }
 
+export interface HeuristicTodoHints {
+  todos: TodoGenerationDraft[];
+  confidence: 'low';
+  note: string;
+}
+
 export interface CaptureGenerateTodosPayload {
   capture: Pick<InboxCapture, 'id' | 'title' | 'content' | 'sourceText' | 'createdAt'>;
-  localDraft: {
+  heuristicHints: HeuristicTodoHints;
+  /** @deprecated Legacy field kept for backward compatibility with older clients. */
+  localDraft?: {
     todos: TodoGenerationDraft[];
     strategy: 'local';
   };

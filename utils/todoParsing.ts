@@ -19,7 +19,9 @@ const capitalizeTaskTitle = (value: string): string => {
 const splitIncludedTasks = (value: string): string[] => {
   return value
     .split(/\s+and\s+|,\s*/)
-    .map(part => capitalizeTaskTitle(part))
+    .map(part => capitalizeTaskTitle(
+      part.replace(/^and\s+/i, '').replace(/[.!?]+$/, '').trim()
+    ))
     .filter(Boolean);
 };
 
@@ -54,12 +56,12 @@ const parseStructuredTaskSentence = (
     return null;
   }
 
-  const parentTitle = capitalizeTaskTitle(
-    needMatch?.[1]?.trim()
-    || trimmedContent
+  const parentSource = needMatch?.[1]?.trim()
+    || (includedTasks.length > 0 ? workingText : '')
     || title.trim()
-    || 'Todo'
-  );
+    || trimmedContent
+    || 'Todo';
+  const parentTitle = capitalizeTaskTitle(parentSource.replace(/[.!?]+$/, '').trim());
   const createdAt = new Date().toISOString();
   const baseId = Date.now().toString();
 

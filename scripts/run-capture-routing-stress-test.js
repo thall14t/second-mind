@@ -247,9 +247,10 @@ async function runFixture(fixture) {
   } else {
     const generate = await postJson('/api/generate-todos', {
       capture,
-      localDraft: {
+      heuristicHints: {
         todos: buildLocalDraftTodos(capture.title, capture.content),
-        strategy: 'local',
+        confidence: 'low',
+        note: 'Stress-test heuristic hints; AI should override when wrong.',
       },
       context: { existingCardAddresses: ['0102a', '0401b'] },
     }, 22_000);

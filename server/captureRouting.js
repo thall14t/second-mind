@@ -1,3 +1,25 @@
+const { sanitizeTodoGeneration } = require('./todoGenerationSanitize');
+
+const TODO_GENERATION_EXAMPLES = [
+  {
+    capture: 'Finish the garden including installing the gate door, placing headers, and trimming posts.',
+    todos: [
+      { title: 'Finish the garden', parentClientId: null },
+      { title: 'Install the gate door', parentClientId: 'parent' },
+      { title: 'Place headers', parentClientId: 'parent' },
+      { title: 'Trim posts', parentClientId: 'parent' },
+    ],
+  },
+  {
+    capture: 'I need to fix the jeep by this Sunday including oil change and tire rotation',
+    todos: [
+      { title: 'Fix the jeep', parentClientId: null, dueDate: 'YYYY-MM-DD only when explicit' },
+      { title: 'Oil change', parentClientId: 'parent' },
+      { title: 'Tire rotation', parentClientId: 'parent' },
+    ],
+  },
+];
+
 const captureClassificationSchema = {
   type: 'object',
   additionalProperties: false,
@@ -121,9 +143,24 @@ function prepareClassifyCaptureContext(body) {
   };
 }
 
+function mapHeuristicHintTodos(todos, prefix) {
+  return (Array.isArray(todos) ? todos : []).slice(0, 40).map((todo, index) => ({
+    clientId: String(todo.clientId || todo.id || `${prefix}-${index}`),
+    title: String(todo.title || ''),
+    content: String(todo.content || ''),
+    parentClientId: String(todo.parentClientId || todo.parentId || ''),
+    sortOrder: Number.isFinite(Number(todo.sortOrder)) ? Number(todo.sortOrder) : index,
+    dueDate: String(todo.dueDate || ''),
+    relatedAddresses: Array.isArray(todo.relatedAddresses)
+      ? todo.relatedAddresses.map(String).slice(0, 8)
+      : [],
+  }));
+}
+
 function prepareGenerateTodosContext(body) {
   const capture = body?.capture ?? {};
-  const localDraft = body?.localDraft ?? {};
+  const heuristicHints = body?.heuristicHints ?? null;
+  const legacyLocalDraft = body?.localDraft ?? {};
   const context = body?.context ?? {};
   const allowedAddresses = new Set(
     (Array.isArray(context.existingCardAddresses) ? context.existingCardAddresses : [])
@@ -153,20 +190,21 @@ function prepareGenerateTodosContext(body) {
       content: String(capture.content || ''),
       sourceText: String(capture.sourceText || ''),
     },
-    localDraft: {
-      todos: (Array.isArray(localDraft.todos) ? localDraft.todos : []).slice(0, 40).map((todo, index) => ({
-        clientId: String(todo.clientId || todo.id || `local-${index}`),
-        title: String(todo.title || ''),
-        content: String(todo.content || ''),
-        parentClientId: String(todo.parentClientId || todo.parentId || ''),
-        sortOrder: Number.isFinite(Number(todo.sortOrder)) ? Number(todo.sortOrder) : index,
-        dueDate: String(todo.dueDate || ''),
-        relatedAddresses: Array.isArray(todo.relatedAddresses)
-          ? todo.relatedAddresses.map(String).slice(0, 8)
-          : [],
-      })),
-      strategy: 'local',
-    },
+    heuristicHints: heuristicHints
+      ? {
+          todos: mapHeuristicHintTodos(heuristicHints.todos, 'hint'),
+          confidence: 'low',
+          note: String(
+            heuristicHints.note
+            || 'Machine-generated guess from local heuristics. Often wrong on parent titles and edge cases. Override freely using capture text.'
+          ),
+        }
+      : {
+          todos: mapHeuristicHintTodos(legacyLocalDraft.todos, 'legacy-hint'),
+          confidence: 'low',
+          note: 'Legacy localDraft payload. Treat as fallible hints only; override freely using capture text.',
+        },
+    examples: TODO_GENERATION_EXAMPLES,
     context: {
       existingCardAddresses: Array.from(allowedAddresses),
       existingTodos,
@@ -190,7 +228,10 @@ function prepareGenerateTodosContext(body) {
         }
       : null,
     outputRules: {
-      authority: 'You are the authoritative todo generation step. Build the todo tree directly from capture text. localDraft may be empty.',
+      authority: 'You are the authoritative todo generation step. Build the todo tree directly from capture text. heuristicHints are fallible machine guesses only.',
+      heuristicHints: 'Never copy heuristicHints blindly. Override them whenever parent titles are too long, contain "including", or repeat the full capture sentence.',
+      parentTitles: 'Parent titles must be short project names. Text after "including" belongs in child todos, not the parent title.',
+      examples: 'Follow the shape of payload.examples when similar captures appear.',
       nesting: 'Preserve parent and child structure using clientId and parentClientId. Use an empty parentClientId for root todos. Multi-level nesting is allowed.',
       appendToExistingList: 'When the capture adds one or more tasks to an existing list (e.g. "add wipe counters to house chores" or "add X to that list"), return ONLY the new todos. Set each new todo parentClientId to the matching existing parent clientId from context.existingTodos. Do not recreate the parent list or duplicate existing children.',
       dueDates: 'Infer dueDate only when explicit or strongly implied. Use YYYY-MM-DD. If timing cannot map to YYYY-MM-DD, preserve the phrase in todo content instead of dropping it.',
@@ -340,7 +381,7 @@ function normalizeTodoGenerationResult(raw, body) {
   const clarificationPrompt = String(raw?.clarificationPrompt || '').trim();
   const inputType = raw?.inputType === 'date' ? 'date' : raw?.inputType === 'free_text' ? 'free_text' : undefined;
 
-  return {
+  const result = {
     todos,
     corrections: Array.isArray(raw?.corrections)
       ? raw.corrections.map(String).filter(Boolean).slice(0, 6)
@@ -352,6 +393,14 @@ function normalizeTodoGenerationResult(raw, body) {
     clarificationPrompt: needsClarification && clarificationPrompt ? clarificationPrompt : undefined,
     inputType: needsClarification && clarificationPrompt ? inputType ?? 'free_text' : undefined,
   };
+
+  return sanitizeTodoGeneration(
+    {
+      title: String(body?.capture?.title || ''),
+      content: String(body?.capture?.content || ''),
+    },
+    result
+  );
 }
 
 async function requestClassifyCapture(body, deps) {
@@ -461,7 +510,9 @@ async function requestGenerateTodos(body, deps) {
               text: [
                 'You generate structured nestable todos from rough Second Mind captures.',
                 'You are the authoritative structuring step. Build the todo tree directly from capture text.',
-                'localDraft may be empty; do not depend on it. Improve titles, nesting, due dates, and card links yourself.',
+                'heuristicHints are fallible local guesses only. Never copy them blindly, especially parent titles.',
+                'Parent titles must be short. Text after "including" belongs in child todos. See payload.examples for the expected shape.',
+                'Improve titles, nesting, due dates, and card links yourself.',
                 'Return clientId and parentClientId for every todo. Use an empty parentClientId for root todos. Multi-level nesting is allowed.',
                 'Only set relatedAddresses when the capture clearly references one of the provided existing card addresses.',
                 'Infer dueDate only when explicit or strongly implied, using YYYY-MM-DD. If timing cannot map to YYYY-MM-DD, preserve the phrase in todo content.',

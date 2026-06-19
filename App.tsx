@@ -95,8 +95,10 @@ import {
   FlatTodoItem,
   getNextSortOrder,
   indentTodo,
+  insertSiblingTodo,
   outdentTodo,
   reorderTodosFromDrag,
+  toggleTodoCompletion,
 } from './utils/todoTree';
 import {
   CARDS_FILE,
@@ -198,8 +200,12 @@ export default function App() {
   const [selectedParentRange, setSelectedParentRange] = useState<ManagedCategory | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [frozenSwipeUnderlay, setFrozenSwipeUnderlay] = useState<SwipeUnderlayDescriptor | null>(null);
+  const [isTodoListZoomed, setIsTodoListZoomed] = useState(false);
   const swipeTriggeredRef = useRef(false);
   const swipeX = useRef(new Animated.Value(0)).current;
+  const isTodoListZoomedRef = useRef(false);
+  const todoListZoomOutRef = useRef<(() => void) | null>(null);
+  isTodoListZoomedRef.current = isTodoListZoomed;
   const theme = getTheme(settings.darkMode);
 
   const categoryTree = useMemo(
@@ -624,6 +630,10 @@ export default function App() {
         : { type: 'screen', screen: thinkingReturnScreen };
     }
 
+    if (currentScreen === 'todoList') {
+      return isTodoListZoomed ? { type: 'screen', screen: 'todoList' } : { type: 'home' };
+    }
+
     if (currentScreen === 'home') {
       return { type: 'none' };
     }
@@ -636,6 +646,9 @@ export default function App() {
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gestureState) => {
           if (currentScreen === 'thinking') {
+            return false;
+          }
+          if (currentScreen === 'todoList' && gestureState.x0 > 48) {
             return false;
           }
           const isHorizontalSwipe = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5;
@@ -659,7 +672,11 @@ export default function App() {
               duration: 180,
               useNativeDriver: true,
             }).start(() => {
-              goBack();
+              if (currentScreen === 'todoList' && isTodoListZoomedRef.current) {
+                todoListZoomOutRef.current?.();
+              } else {
+                goBack();
+              }
               setTimeout(() => {
                 swipeX.setValue(0);
                 setFrozenSwipeUnderlay(null);
@@ -1548,9 +1565,7 @@ export default function App() {
   };
 
   const toggleTodo = async (todoId: string) => {
-    const updatedTodos = todos.map(todo =>
-      todo.id === todoId ? { ...todo, completed: !todo.completed } : todo
-    );
+    const updatedTodos = toggleTodoCompletion(todos, todoId);
     await saveTodos(updatedTodos);
   };
 
@@ -1565,16 +1580,27 @@ export default function App() {
     }
   };
 
-  const addSubTodo = async (parentId: string) => {
+  const addSubTodo = async (parentId: string, title = ''): Promise<string> => {
     const newSubTodo: Todo = {
       id: `${Date.now()}-sub`,
-      title: 'New sub-task',
+      title,
       completed: false,
       parentId,
       sortOrder: getNextSortOrder(todos, parentId),
       createdAt: new Date().toISOString(),
     };
     await saveTodos([newSubTodo, ...todos]);
+    return newSubTodo.id;
+  };
+
+  const addSiblingTodo = async (afterTodoId: string, title = ''): Promise<string | null> => {
+    const inserted = insertSiblingTodo(todos, afterTodoId, { title });
+    if (!inserted) {
+      return null;
+    }
+
+    await saveTodos(inserted.todos);
+    return inserted.newTodoId;
   };
 
   const updateTodo = async (
@@ -2265,13 +2291,21 @@ export default function App() {
       onToggleTodo={toggleTodo}
       onDeleteTodo={deleteTodo}
       onAddSubTodo={addSubTodo}
+      onAddSiblingTodo={addSiblingTodo}
       onUpdateTodo={updateTodo}
       onCollapsedTodoIdsChange={saveCollapsedTodoIds}
       onReorderTodos={reorderTodos}
       onIndentTodo={indentTodoItem}
       onOutdentTodo={outdentTodoItem}
       onOpenLinkedCard={openLinkedCard}
-      onBack={() => setCurrentScreen('home')}
+      onZoomChange={setIsTodoListZoomed}
+      onRegisterZoomOut={handler => {
+        todoListZoomOutRef.current = handler;
+      }}
+      onBack={() => {
+        setIsTodoListZoomed(false);
+        setCurrentScreen('home');
+      }}
     />
   );
 

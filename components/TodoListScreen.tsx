@@ -1,12 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
+import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { FlatList } from 'react-native-gesture-handler';
+import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
+import TodoRowItem from './TodoRowItem';
 import { styles } from '../styles';
 import { getTheme } from '../theme';
 import { Todo } from '../types';
 import { normalizeTodoDueDateInput } from '../utils/todoDates';
-
 import {
+  buildAutoCollapsedParentIds,
   canIndentTodo,
   canOutdentTodo,
   collectDescendantIds,
@@ -14,6 +26,8 @@ import {
   countSubtreeTodos,
   FlatTodoItem,
   flattenTodoTree,
+  getTodoAncestorChain,
+  projectTodosForZoom,
   todoHasChildren,
 } from '../utils/todoTree';
 
@@ -21,6 +35,9 @@ const TODO_NEST_STEP = 10;
 const TODO_MAX_NEST_GUIDES = 5;
 const AUTO_SAVE_DELAY_MS = 600;
 const COLLAPSE_SAVE_DELAY_MS = 300;
+const KEYBOARD_SCROLL_VIEW_POSITION = 0.28;
+const EDIT_BLUR_DISMISS_DELAY_MS = 100;
+
 
 interface TodoListScreenProps {
   darkMode: boolean;
@@ -28,7 +45,8 @@ interface TodoListScreenProps {
   collapsedTodoIds: string[];
   onToggleTodo: (todoId: string) => void;
   onDeleteTodo: (todoId: string) => void;
-  onAddSubTodo: (parentId: string) => void;
+  onAddSubTodo: (parentId: string, title?: string) => Promise<string>;
+  onAddSiblingTodo: (afterTodoId: string, title?: string) => Promise<string | null>;
   onUpdateTodo: (
     todoId: string,
     updates: {
@@ -44,6 +62,8 @@ interface TodoListScreenProps {
   onIndentTodo: (todoId: string) => void | Promise<void>;
   onOutdentTodo: (todoId: string) => void | Promise<void>;
   onOpenLinkedCard: (address: string) => void;
+  onZoomChange?: (isZoomed: boolean) => void;
+  onRegisterZoomOut?: (handler: (() => void) | null) => void;
   onBack: () => void;
 }
 
@@ -54,41 +74,93 @@ export default function TodoListScreen({
   onToggleTodo,
   onDeleteTodo,
   onAddSubTodo,
+  onAddSiblingTodo,
   onUpdateTodo,
   onCollapsedTodoIdsChange,
   onReorderTodos,
   onIndentTodo,
   onOutdentTodo,
   onOpenLinkedCard,
+  onZoomChange,
+  onRegisterZoomOut,
   onBack,
 }: TodoListScreenProps) {
   const theme = getTheme(darkMode);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [zoomedTodoId, setZoomedTodoId] = useState<string | null>(null);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set(collapsedTodoIds));
   const collapsePersistReadyRef = useRef(false);
+  const autoCollapseBootstrappedRef = useRef(false);
+
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editRelatedAddressesText, setEditRelatedAddressesText] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
 
+  const displayTodos = useMemo(
+    () => (zoomedTodoId ? projectTodosForZoom(todos, zoomedTodoId) : todos),
+    [todos, zoomedTodoId]
+  );
+
   const completedCount = useMemo(() => countCompletedTodos(todos), [todos]);
   const openCount = todos.length - completedCount;
   const flatItems = useMemo(
-    () => flattenTodoTree(todos, showCompleted, collapsedIds),
-    [todos, showCompleted, collapsedIds]
+    () => flattenTodoTree(displayTodos, showCompleted, collapsedIds),
+    [displayTodos, showCompleted, collapsedIds]
   );
   const [listData, setListData] = useState(flatItems);
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const listRef = useRef<FlatList<FlatTodoItem>>(null);
+  const pendingEditDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editingTodoIdRef = useRef<string | null>(null);
+  const editingRowSwitchRef = useRef(false);
+  editingTodoIdRef.current = editingTodoId;
   const editingTodo = editingTodoId ? todos.find(todo => todo.id === editingTodoId) ?? null : null;
+  const zoomBreadcrumb = useMemo(
+    () => (zoomedTodoId ? getTodoAncestorChain(todos, zoomedTodoId) : []),
+    [todos, zoomedTodoId]
+  );
 
   useEffect(() => {
     setListData(flatItems);
   }, [flatItems]);
 
   useEffect(() => {
+    onZoomChange?.(zoomedTodoId !== null);
+  }, [onZoomChange, zoomedTodoId]);
+
+  useEffect(() => {
+    onRegisterZoomOut?.(() => {
+      setZoomedTodoId(null);
+    });
+    return () => onRegisterZoomOut?.(null);
+  }, [onRegisterZoomOut]);
+
+  useEffect(() => {
     setCollapsedIds(new Set(collapsedTodoIds));
     collapsePersistReadyRef.current = false;
   }, [collapsedTodoIds]);
+
+  useEffect(() => {
+    if (autoCollapseBootstrappedRef.current) {
+      return;
+    }
+
+    if (collapsedTodoIds.length > 0) {
+      autoCollapseBootstrappedRef.current = true;
+      return;
+    }
+
+    const defaults = buildAutoCollapsedParentIds(todos, true);
+    autoCollapseBootstrappedRef.current = true;
+    if (defaults.length === 0) {
+      return;
+    }
+
+    setCollapsedIds(new Set(defaults));
+    void onCollapsedTodoIdsChange(defaults);
+  }, [collapsedTodoIds.length, onCollapsedTodoIdsChange, todos]);
 
   useEffect(() => {
     if (!collapsePersistReadyRef.current) {
@@ -110,6 +182,17 @@ export default function TodoListScreen({
   }, [editingTodo, showCompleted]);
 
   useEffect(() => {
+    if (!editingTodoId || !zoomedTodoId) {
+      return;
+    }
+
+    const visible = collectDescendantIds(todos, zoomedTodoId);
+    if (!visible.has(editingTodoId)) {
+      setEditingTodoId(null);
+    }
+  }, [editingTodoId, todos, zoomedTodoId]);
+
+  useEffect(() => {
     if (!editingTodoId) {
       setEditTitle('');
       setEditContent('');
@@ -127,7 +210,7 @@ export default function TodoListScreen({
     setEditContent(todo.content ?? '');
     setEditRelatedAddressesText((todo.relatedAddresses ?? []).join(', '));
     setEditDueDate(todo.dueDate ?? '');
-  }, [editingTodoId]);
+  }, [editingTodoId, todos]);
 
   useEffect(() => {
     if (!editingTodoId) {
@@ -198,26 +281,159 @@ export default function TodoListScreen({
     setEditingTodoId(todo.id);
   };
 
-  const flushAndCollapseEditing = async () => {
+  const flushAndCollapseEditing = useCallback(async () => {
     await persistEditing();
     collapseEditing();
-  };
+  }, [persistEditing]);
+
+  const cancelPendingEditDismiss = useCallback(() => {
+    if (pendingEditDismissRef.current) {
+      clearTimeout(pendingEditDismissRef.current);
+      pendingEditDismissRef.current = null;
+    }
+  }, []);
+
+  const scheduleDismissEditing = useCallback((todoIdAtBlur: string) => {
+    cancelPendingEditDismiss();
+    pendingEditDismissRef.current = setTimeout(() => {
+      pendingEditDismissRef.current = null;
+      if (editingRowSwitchRef.current) {
+        return;
+      }
+      if (editingTodoIdRef.current !== todoIdAtBlur) {
+        return;
+      }
+      void flushAndCollapseEditing();
+    }, EDIT_BLUR_DISMISS_DELAY_MS);
+  }, [cancelPendingEditDismiss, flushAndCollapseEditing]);
 
   const handleBack = async () => {
-    await persistEditing();
-    onBack();
-  };
-
-  const toggleEditing = (todo: Todo) => {
-    if (editingTodoId === todo.id) {
-      void flushAndCollapseEditing();
+    if (zoomedTodoId) {
+      await flushAndCollapseEditing();
+      setZoomedTodoId(null);
       return;
     }
 
-    void (async () => {
-      await persistEditing();
-      openEditing(todo);
-    })();
+    await flushAndCollapseEditing();
+    onBack();
+  };
+
+  const zoomIntoTodo = (todoId: string) => {
+    setZoomedTodoId(todoId);
+    setCollapsedIds(current => {
+      if (!current.has(todoId)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(todoId);
+      return next;
+    });
+  };
+
+  const scrollEditingTodoIntoView = useCallback((todoId?: string | null) => {
+    const targetId = todoId ?? editingTodoId;
+    if (!targetId) {
+      return;
+    }
+
+    const index = listData.findIndex(item => item.todo.id === targetId);
+    if (index < 0) {
+      return;
+    }
+
+    const scroll = () => {
+      listRef.current?.scrollToIndex({
+        index,
+        animated: true,
+        viewPosition: KEYBOARD_SCROLL_VIEW_POSITION,
+      });
+    };
+
+    requestAnimationFrame(() => {
+      setTimeout(scroll, Platform.OS === 'ios' ? 80 : 120);
+    });
+  }, [editingTodoId, listData]);
+
+  const handleEditingFieldFocus = useCallback((todoId: string) => {
+    cancelPendingEditDismiss();
+    scrollEditingTodoIntoView(todoId);
+  }, [cancelPendingEditDismiss, scrollEditingTodoIntoView]);
+
+  const handleEditingFieldBlur = useCallback((todoId: string) => {
+    scheduleDismissEditing(todoId);
+  }, [scheduleDismissEditing]);
+
+  useEffect(() => {
+    if (!editingTodoId) {
+      return;
+    }
+
+    scrollEditingTodoIntoView(editingTodoId);
+  }, [editingTodoId, scrollEditingTodoIntoView]);
+
+  useEffect(() => () => {
+    cancelPendingEditDismiss();
+  }, [cancelPendingEditDismiss]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSubscription = Keyboard.addListener(showEvent, event => {
+      setKeyboardInset(event.endCoordinates.height);
+      if (editingTodoId) {
+        scrollEditingTodoIntoView(editingTodoId);
+      }
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setKeyboardInset(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [editingTodoId, scrollEditingTodoIntoView]);
+
+  const handleOpenEditing = useCallback(async (todo: Todo) => {
+    if (editingTodoId === todo.id) {
+      return;
+    }
+
+    cancelPendingEditDismiss();
+    editingRowSwitchRef.current = true;
+    await persistEditing();
+    openEditing(todo);
+    setTimeout(() => {
+      editingRowSwitchRef.current = false;
+    }, EDIT_BLUR_DISMISS_DELAY_MS + 50);
+  }, [cancelPendingEditDismiss, editingTodoId, persistEditing]);
+
+  const handleZoomIntoTodo = useCallback(async (todoId: string) => {
+    await persistEditing();
+    collapseEditing();
+    zoomIntoTodo(todoId);
+  }, [persistEditing]);
+
+  const handleTitleSubmit = async (todo: Todo) => {
+    await persistEditing(todo.id);
+
+    let newTodoId: string | null = null;
+    if (zoomedTodoId && todo.id === zoomedTodoId) {
+      newTodoId = await onAddSubTodo(zoomedTodoId, '');
+    } else {
+      newTodoId = await onAddSiblingTodo(todo.id, '');
+    }
+
+    if (!newTodoId) {
+      return;
+    }
+
+    setEditingTodoId(newTodoId);
+    setEditTitle('');
+    setEditContent('');
+    setEditRelatedAddressesText('');
+    setEditDueDate('');
   };
 
   const toggleSubtree = (todoId: string) => {
@@ -228,7 +444,7 @@ export default function TodoListScreen({
       if (willCollapse) {
         next.add(todoId);
         if (editingTodoId) {
-          const hiddenIds = collectDescendantIds(todos, todoId);
+          const hiddenIds = collectDescendantIds(displayTodos, todoId);
           if (hiddenIds.has(editingTodoId)) {
             void persistEditing(editingTodoId);
             setEditingTodoId(null);
@@ -240,19 +456,6 @@ export default function TodoListScreen({
 
       return next;
     });
-  };
-
-  const handleAddSubTodo = (parentId: string) => {
-    setCollapsedIds(current => {
-      if (!current.has(parentId)) {
-        return current;
-      }
-
-      const next = new Set(current);
-      next.delete(parentId);
-      return next;
-    });
-    onAddSubTodo(parentId);
   };
 
   const persistEditingRef = useRef(persistEditing);
@@ -294,6 +497,9 @@ export default function TodoListScreen({
           style: 'destructive',
           onPress: () => {
             void onDeleteTodo(todoId);
+            if (zoomedTodoId === todoId) {
+              setZoomedTodoId(null);
+            }
             collapseEditing();
           },
         },
@@ -362,20 +568,14 @@ export default function TodoListScreen({
     );
   };
 
-  const renderInlineEditPanel = (todo: Todo) => (
+  const renderDetailsPanel = (todo: Todo) => (
     <View style={[styles.todoEditPanelInline, { backgroundColor: theme.tertiaryBackground, borderColor: theme.border }]}>
-      <TextInput
-        style={[styles.todoCompactInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
-        value={editTitle}
-        onChangeText={setEditTitle}
-        placeholder="Title"
-        placeholderTextColor={theme.mutedText}
-      />
-
       <TextInput
         style={[styles.todoCompactInput, styles.todoCompactNotesInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
         value={editContent}
         onChangeText={setEditContent}
+        onFocus={() => handleEditingFieldFocus(todo.id)}
+        onBlur={() => handleEditingFieldBlur(todo.id)}
         placeholder="Notes"
         placeholderTextColor={theme.mutedText}
         multiline
@@ -387,6 +587,8 @@ export default function TodoListScreen({
           style={[styles.todoCompactInput, styles.todoCompactHalfInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
           value={editDueDate}
           onChangeText={setEditDueDate}
+          onFocus={() => handleEditingFieldFocus(todo.id)}
+          onBlur={() => handleEditingFieldBlur(todo.id)}
           placeholder="Due YYYY-MM-DD"
           placeholderTextColor={theme.mutedText}
           autoCapitalize="none"
@@ -395,201 +597,152 @@ export default function TodoListScreen({
           style={[styles.todoCompactInput, styles.todoCompactHalfInput, { backgroundColor: theme.cardBackground, borderColor: theme.border, color: theme.text }]}
           value={editRelatedAddressesText}
           onChangeText={setEditRelatedAddressesText}
+          onFocus={() => handleEditingFieldFocus(todo.id)}
+          onBlur={() => handleEditingFieldBlur(todo.id)}
           placeholder="Cards 0101a"
           placeholderTextColor={theme.mutedText}
           autoCapitalize="none"
         />
       </View>
 
-      <View style={styles.todoCompactStructureRow}>
-        <TouchableOpacity
-          style={[
-            styles.todoCompactIconButton,
-            {
-              backgroundColor: theme.secondaryBackground,
-              borderWidth: 1,
-              borderColor: theme.border,
-              opacity: canOutdentTodo(todos, todo.id) ? 1 : 0.45,
-            },
-          ]}
-          onPress={() => canOutdentTodo(todos, todo.id) && onOutdentTodo(todo.id)}
-          disabled={!canOutdentTodo(todos, todo.id)}
-        >
-          <Text style={[styles.todoCompactActionIcon, { color: theme.secondaryButtonText }]}>{'\u2190'}</Text>
+      {(todo.relatedAddresses ?? []).map(address => (
+        <TouchableOpacity key={address} onPress={() => onOpenLinkedCard(address)}>
+          <Text style={[styles.todoLinkedCardText, { color: theme.accent }]}>{address}</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.todoCompactIconButton,
-            {
-              backgroundColor: theme.secondaryBackground,
-              borderWidth: 1,
-              borderColor: theme.border,
-              opacity: canIndentTodo(todos, todo.id) ? 1 : 0.45,
-            },
-          ]}
-          onPress={() => canIndentTodo(todos, todo.id) && onIndentTodo(todo.id)}
-          disabled={!canIndentTodo(todos, todo.id)}
-        >
-          <Text style={[styles.todoCompactActionIcon, { color: theme.secondaryButtonText }]}>{'\u2192'}</Text>
-        </TouchableOpacity>
-      </View>
+      ))}
     </View>
   );
 
-  const renderTodoRow = ({ item, drag, isActive }: RenderItemParams<FlatTodoItem>) => {
-    const { todo, depth } = item;
-    const isEditing = editingTodoId === todo.id;
-    const hasChildren = todoHasChildren(todos, todo.id, showCompleted);
+  const renderTodoRow = (params: RenderItemParams<FlatTodoItem>) => {
+    const { todo } = params.item;
+    const hasChildren = todoHasChildren(displayTodos, todo.id, showCompleted);
     const isSubtreeCollapsed = collapsedIds.has(todo.id);
-    const childCount = hasChildren ? countSubtreeTodos(todos, todo.id, showCompleted) : 0;
+    const childCount = hasChildren ? countSubtreeTodos(displayTodos, todo.id, showCompleted) : 0;
 
     return (
-      <ScaleDecorator>
-        <View
-          style={[
-            styles.todoListItem,
-            {
-              opacity: todo.completed ? 0.6 : 1,
-              backgroundColor: isActive ? theme.accentSoft : 'transparent',
-            },
-          ]}
-        >
-          <View style={styles.todoCardRow}>
-            <View style={styles.todoFixedControls}>
-              <TouchableOpacity
-                onLongPress={drag}
-                delayLongPress={120}
-                style={styles.todoDragHandle}
-              >
-                <Text style={[styles.todoDragHandleText, { color: theme.mutedText }]}>{'\u2261'}</Text>
-              </TouchableOpacity>
+      <TodoRowItem
+        params={params}
+        theme={theme}
+        editingTodoId={editingTodoId}
+        editTitle={editTitle}
+        editContent={editContent}
+        editDueDate={editDueDate}
+        editRelatedAddressesText={editRelatedAddressesText}
+        hasChildren={hasChildren}
+        isSubtreeCollapsed={isSubtreeCollapsed}
+        childCount={childCount}
+        canIndent={canIndentTodo(displayTodos, todo.id)}
+        canOutdent={canOutdentTodo(displayTodos, todo.id)}
+        onToggleTodo={onToggleTodo}
+        onIndentTodo={todoId => { void onIndentTodo(todoId); }}
+        onOutdentTodo={todoId => { void onOutdentTodo(todoId); }}
+        onToggleSubtree={toggleSubtree}
+        onOpenEditing={todoItem => { void handleOpenEditing(todoItem); }}
+        onZoomIntoTodo={todoId => { void handleZoomIntoTodo(todoId); }}
+        onDeleteTodo={handleDeleteTodo}
+        onTitleSubmit={todoItem => { void handleTitleSubmit(todoItem); }}
+        onEditTitleChange={setEditTitle}
+        onEditingFieldFocus={handleEditingFieldFocus}
+        onEditingFieldBlur={handleEditingFieldBlur}
+        renderNestingGutter={renderNestingGutter}
+        renderDetailsPanel={renderDetailsPanel}
+      />
+    );
+  };
 
-              <TouchableOpacity
-                style={[
-                  styles.todoCheckButton,
-                  {
-                    borderColor: todo.completed ? theme.accent : theme.border,
-                    backgroundColor: todo.completed ? theme.accentSoft : 'transparent',
-                  },
-                ]}
-                onPress={() => onToggleTodo(todo.id)}
-              >
-                <Text style={[styles.todoCheckMark, { color: todo.completed ? theme.accent : theme.mutedText }]}>
-                  {todo.completed ? '\u2713' : ''}
+  const renderBreadcrumb = () => {
+    if (zoomBreadcrumb.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.todoZoomBreadcrumbRow}>
+        <TouchableOpacity onPress={() => { void flushAndCollapseEditing(); setZoomedTodoId(null); }}>
+          <Text style={[styles.todoZoomBreadcrumbLink, { color: theme.accent }]}>Todos</Text>
+        </TouchableOpacity>
+        {zoomBreadcrumb.map((item, index) => {
+          const isLast = index === zoomBreadcrumb.length - 1;
+          return (
+            <React.Fragment key={item.id}>
+              <Text style={[styles.todoZoomBreadcrumbSep, { color: theme.mutedText }]}>{'>'}</Text>
+              {isLast ? (
+                <Text style={[styles.todoZoomBreadcrumbCurrent, { color: theme.text }]} numberOfLines={1}>
+                  {item.title || 'Untitled'}
                 </Text>
-              </TouchableOpacity>
-            </View>
-
-            {renderNestingGutter(depth)}
-
-            <View style={styles.todoRowBody}>
-              <View style={styles.todoTitleRow}>
-                {hasChildren ? (
-                  <TouchableOpacity
-                    style={styles.todoCollapseButton}
-                    onPress={() => toggleSubtree(todo.id)}
-                    hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                  >
-                    <Text style={[styles.todoCollapseIcon, { color: theme.mutedText }]}>
-                      {isSubtreeCollapsed ? '\u25B6' : '\u25BC'}
-                    </Text>
-                    {isSubtreeCollapsed ? (
-                      <Text style={[styles.todoCollapseCount, { color: theme.mutedText }]}>
-                        {childCount}
-                      </Text>
-                    ) : null}
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.todoCollapseSpacer} />
-                )}
-                <TouchableOpacity
-                  style={styles.todoTitleButton}
-                  onPress={() => toggleEditing(todo)}
-                  onLongPress={() => handleDeleteTodo(todo.id)}
-                  delayLongPress={450}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.todoTaskTitle,
-                      {
-                        color: isEditing ? theme.accent : theme.text,
-                        textDecorationLine: todo.completed ? 'line-through' : 'none',
-                      },
-                    ]}
-                    numberOfLines={3}
-                  >
-                    {isEditing ? editTitle || 'Untitled' : todo.title}
+              ) : (
+                <TouchableOpacity onPress={() => { void flushAndCollapseEditing(); setZoomedTodoId(item.id); }}>
+                  <Text style={[styles.todoZoomBreadcrumbLink, { color: theme.accent }]} numberOfLines={1}>
+                    {item.title || 'Untitled'}
                   </Text>
                 </TouchableOpacity>
-                <View style={styles.todoTitleActions}>
-                  <TouchableOpacity
-                    style={styles.todoInlineIconButton}
-                    onPress={() => toggleEditing(todo)}
-                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                  >
-                    <Text style={[styles.todoEditIconText, { color: isEditing ? theme.accent : theme.mutedText }]}>{'\u270E'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.todoInlineIconButton}
-                    onPress={() => handleAddSubTodo(todo.id)}
-                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
-                  >
-                    <Text style={[styles.todoEditIconText, { color: theme.mutedText }]}>+</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {isEditing ? renderInlineEditPanel(todo) : null}
-        </View>
-      </ScaleDecorator>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </View>
     );
   };
 
   const listHeader = (
     <View>
-      <Text style={[styles.formTitle, { color: theme.text }]}>Todos</Text>
-      <Text style={[styles.contextText, { color: theme.mutedText }]}>
-        Tap a title to edit. Long-press a title to delete. Changes save automatically.
-      </Text>
-
-      <TouchableOpacity
-        style={[
-          styles.secondaryButton,
-          {
-            backgroundColor: showCompleted ? theme.accentSoft : theme.secondaryBackground,
-            borderWidth: 1,
-            borderColor: showCompleted ? theme.accent : theme.border,
-            marginBottom: 12,
-            opacity: completedCount > 0 ? 1 : 0.55,
-          },
-        ]}
-        onPress={() => completedCount > 0 && setShowCompleted(current => !current)}
-        disabled={completedCount === 0}
-      >
-        <Text style={[styles.secondaryButtonText, { color: showCompleted ? theme.accent : theme.secondaryButtonText }]}>
-          {showCompleted ? 'Hide Completed Items' : 'Show Completed Items'}
-          {completedCount > 0 ? ` (${completedCount})` : ''}
+      <View style={styles.todoHeaderRow}>
+        <TouchableOpacity
+          style={styles.todoHeaderBackButton}
+          onPress={() => void handleBack()}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={[styles.todoHeaderBackText, { color: theme.accent }]}>{'\u2190'}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.formTitle, { color: theme.text, flex: 1, marginBottom: 0 }]} numberOfLines={1}>
+          {zoomedTodoId ? zoomBreadcrumb[zoomBreadcrumb.length - 1]?.title || 'Focused list' : 'Todos'}
         </Text>
-      </TouchableOpacity>
+      </View>
+      {renderBreadcrumb()}
+      <Pressable
+        onPress={() => {
+          if (editingTodoId) {
+            void flushAndCollapseEditing();
+          }
+        }}
+      >
+        <Text style={[styles.contextText, { color: theme.mutedText }]}>
+          Tap title to edit, bullet to fold, double-tap parent title to zoom. Swipe title right to indent, left to outdent. Long-press checkbox to reorder, title to delete. Swipe from the left edge to zoom out or go back.
+        </Text>
+      </Pressable>
+
+      {completedCount > 0 ? (
+        <TouchableOpacity
+          onPress={() => setShowCompleted(current => !current)}
+          style={{ marginBottom: 12 }}
+        >
+          <Text style={[styles.todoToggleLink, { color: theme.accent }]}>
+            {showCompleted ? 'Hide completed' : `Show completed (${completedCount})`}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 
   const listEmpty = (
     <Text style={[styles.emptyText, { color: theme.mutedText, marginTop: 40 }]}>
-      {todos.length === 0
-        ? 'No todos yet. Use Quick Capture in Todo List mode to create some.'
+      {displayTodos.length === 0
+        ? 'No todos yet. Use Quick Capture to create some.'
         : openCount === 0 && !showCompleted
-          ? 'All tasks are complete. Tap Show Completed Items to review them.'
+          ? 'All tasks are complete. Tap show completed above to review them.'
           : 'No todos match this view.'}
     </Text>
   );
 
+  const listBottomPadding = keyboardInset > 0 ? keyboardInset + 24 : 24;
+
   return (
-    <View style={[styles.fullScreenView, { backgroundColor: theme.background, flex: 1 }]}>
+    <KeyboardAvoidingView
+      style={[styles.fullScreenView, { backgroundColor: theme.background, flex: 1 }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+    >
       <DraggableFlatList
+        ref={listRef}
         data={listData}
         keyExtractor={item => item.todo.id}
         onDragEnd={({ data, from, to }) => {
@@ -598,15 +751,36 @@ export default function TodoListScreen({
         }}
         activationDistance={12}
         containerStyle={{ flex: 1 }}
-        contentContainerStyle={[styles.mainContent, { paddingBottom: 24 }]}
+        contentContainerStyle={[styles.mainContent, { paddingBottom: listBottomPadding }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         ListHeaderComponent={listHeader}
         ListEmptyComponent={listEmpty}
+        ListFooterComponent={
+          editingTodoId ? (
+            <Pressable
+              style={{ minHeight: 180 }}
+              onPress={() => { void flushAndCollapseEditing(); }}
+            />
+          ) : null
+        }
         renderItem={renderTodoRow}
+        onScrollToIndexFailed={info => {
+          listRef.current?.scrollToOffset({
+            offset: Math.max(0, info.averageItemLength * info.index),
+            animated: true,
+          });
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              listRef.current?.scrollToIndex({
+                index: info.index,
+                animated: true,
+                viewPosition: KEYBOARD_SCROLL_VIEW_POSITION,
+              });
+            }, 100);
+          });
+        }}
       />
-
-      <TouchableOpacity style={styles.cancelButton} onPress={() => void handleBack()}>
-        <Text style={styles.cancelButtonText}>Back</Text>
-      </TouchableOpacity>
-    </View>
+    </KeyboardAvoidingView>
   );
 }

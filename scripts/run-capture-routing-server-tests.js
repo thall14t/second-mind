@@ -79,17 +79,22 @@ function runTests() {
 
   const generateContext = prepareGenerateTodosContext({
     capture: { title: 'Project', content: '- draft outline\n- email editor' },
-    localDraft: {
+    heuristicHints: {
       todos: [
         { clientId: 'parent', title: 'Project', sortOrder: 0, parentId: null },
         { clientId: 'child', title: 'draft outline', sortOrder: 0, parentId: 'parent' },
       ],
+      confidence: 'low',
+      note: 'test hints',
     },
     context: {
       existingCardAddresses: ['0102a', 'bad', '0102a'],
     },
   });
   assert.deepStrictEqual(generateContext.context.existingCardAddresses, ['0102a', 'bad']);
+  assert.strictEqual(generateContext.heuristicHints.confidence, 'low');
+  assert.match(generateContext.outputRules.heuristicHints, /blindly/i);
+  assert.ok(Array.isArray(generateContext.examples));
 
   const appendContext = prepareGenerateTodosContext({
     capture: { title: '', content: 'Add wipe counters to house chores' },
@@ -126,6 +131,34 @@ function runTests() {
   assert.strictEqual(generated.todos[1].parentClientId, 'parent');
   assert.deepStrictEqual(generated.todos[1].relatedAddresses, ['0102a']);
   assert.strictEqual(generated.confidenceBand, 'medium');
+
+  const sanitizedGarden = normalizeTodoGenerationResult(
+    {
+      todos: [
+        {
+          clientId: 'parent',
+          title: 'Finish the garden including installing the gate door, placing headers, and trimming posts.',
+          parentClientId: '',
+          sortOrder: 0,
+        },
+        {
+          clientId: 'child-1',
+          title: 'Install the gate door',
+          parentClientId: 'parent',
+          sortOrder: 0,
+        },
+      ],
+      corrections: [],
+      confidence: 0.8,
+    },
+    {
+      capture: {
+        title: '',
+        content: 'Finish the garden including installing the gate door, placing headers, and trimming posts.',
+      },
+    }
+  );
+  assert.strictEqual(sanitizedGarden.todos[0].title, 'Finish the garden');
 
   const clarifying = normalizeTodoGenerationResult(
     {

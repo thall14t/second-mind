@@ -197,7 +197,7 @@ export const mergeTodoGenerationIntoExisting = (
     .map(draft => draft.parentClientId)
     .filter((parentId): parentId is string => Boolean(parentId && existingIds.has(parentId)));
 
-  if (appendParents.length === 0) {
+  if (appendParents.length === 0 && (generation.strategy === 'local' || drafts.length === 0)) {
     const localAppend = buildLocalAppendTodoGeneration(capture, existingTodos);
     if (localAppend) {
       drafts = localAppend.todos;

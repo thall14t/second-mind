@@ -244,6 +244,22 @@ export const countSubtreeTodos = (
 export const countCompletedTodos = (todos: Todo[]): number =>
   todos.filter(todo => todo.completed).length;
 
+export const toggleTodoCompletion = (todos: Todo[], todoId: string): Todo[] => {
+  const target = todos.find(todo => todo.id === todoId);
+  if (!target) {
+    return todos;
+  }
+
+  const nextCompleted = !target.completed;
+  const affectedIds = todoHasChildren(todos, todoId, true)
+    ? collectDescendantIds(todos, todoId)
+    : new Set([todoId]);
+
+  return todos.map(todo =>
+    affectedIds.has(todo.id) ? { ...todo, completed: nextCompleted } : todo
+  );
+};
+
 export const clampFlatTodoDepths = (flat: FlatTodoItem[]): FlatTodoItem[] => {
   const result: FlatTodoItem[] = [];
 
@@ -362,6 +378,93 @@ export const canOutdentTodo = (todos: Todo[], todoId: string): boolean => {
   const flat = flattenTodoTree(todos);
   const index = flat.findIndex(item => item.todo.id === todoId);
   return index >= 0 && flat[index].depth > 0;
+};
+
+export const AUTO_COLLAPSE_OPEN_THRESHOLD = 10;
+
+export const getTodoAncestorChain = (todos: Todo[], todoId: string): Todo[] => {
+  const byId = new Map(todos.map(todo => [todo.id, todo]));
+  const chain: Todo[] = [];
+  let current = byId.get(todoId);
+
+  while (current) {
+    chain.unshift(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+
+  return chain;
+};
+
+export const projectTodosForZoom = (todos: Todo[], zoomId: string): Todo[] => {
+  const allowed = collectDescendantIds(todos, zoomId);
+  return todos
+    .filter(todo => allowed.has(todo.id))
+    .map(todo => (
+      todo.id === zoomId
+        ? { ...todo, parentId: undefined }
+        : todo
+    ));
+};
+
+export const buildAutoCollapsedParentIds = (
+  todos: Todo[],
+  showCompleted = true,
+  threshold = AUTO_COLLAPSE_OPEN_THRESHOLD
+): string[] => {
+  const displayTodos = getTodosForDisplay(todos, showCompleted);
+  if (displayTodos.length < threshold) {
+    return [];
+  }
+
+  return displayTodos
+    .filter(todo => todoHasChildren(todos, todo.id, showCompleted))
+    .map(todo => todo.id);
+};
+
+export const insertSiblingTodo = (
+  todos: Todo[],
+  afterTodoId: string,
+  draft?: Partial<Pick<Todo, 'title' | 'content' | 'dueDate'>>
+): { todos: Todo[]; newTodoId: string } | null => {
+  const afterTodo = todos.find(todo => todo.id === afterTodoId);
+  if (!afterTodo) {
+    return null;
+  }
+
+  const parentId = afterTodo.parentId;
+  const siblings = getTodoSiblings(todos, afterTodo);
+  const afterIndex = siblings.findIndex(todo => todo.id === afterTodoId);
+  if (afterIndex < 0) {
+    return null;
+  }
+
+  const newTodoId = `${Date.now()}-sibling`;
+  const newTodo: Todo = {
+    id: newTodoId,
+    title: draft?.title ?? '',
+    content: draft?.content,
+    dueDate: draft?.dueDate,
+    completed: false,
+    parentId,
+    sortOrder: afterIndex + 1,
+    createdAt: new Date().toISOString(),
+  };
+
+  const siblingIdsAfter = new Set(
+    siblings.slice(afterIndex + 1).map(todo => todo.id)
+  );
+
+  const shifted = todos.map(todo => {
+    if (siblingIdsAfter.has(todo.id)) {
+      return { ...todo, sortOrder: todo.sortOrder + 1 };
+    }
+    return todo;
+  });
+
+  return {
+    todos: ensureTodoSortOrders([...shifted, newTodo]),
+    newTodoId,
+  };
 };
 
 export const canMoveTodo = (todos: Todo[], todoId: string, direction: 'up' | 'down'): boolean => {

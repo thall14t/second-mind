@@ -40,7 +40,9 @@ import {
   buildLocalAppendTodoGeneration,
   mergeTodoGenerationIntoExisting,
 } from '../utils/todoAppend';
+import { buildHeuristicTodoHints } from '../utils/heuristicTodoHints';
 import { parseTodosFromCapture } from '../utils/todoParsing';
+import { sanitizeTodoGeneration } from '../utils/todoGenerationSanitize';
 import { ensureTodoSortOrders } from '../utils/todoTree';
 import { useCaptureJobs } from './useCaptureJobs';
 
@@ -249,10 +251,7 @@ export const useCaptureRouting = ({
         sourceText: capture.sourceText,
         createdAt: capture.createdAt,
       },
-      localDraft: {
-        todos: [],
-        strategy: 'local' as const,
-      },
+      heuristicHints: buildHeuristicTodoHints(capture.title, capture.content),
       context: {
         existingCardAddresses: getCardAddresses().slice(0, 50),
         existingTodos: buildExistingTodoSummariesForGeneration(getTodos()),
@@ -281,10 +280,13 @@ export const useCaptureRouting = ({
           }
 
           const clarificationRound = clarification?.round ?? 1;
-          return finalizeTodoGenerationResult({
-            ...data.result,
-            strategy: data.result.strategy ?? 'ai',
-          }, clarificationRound);
+          return finalizeTodoGenerationResult(
+            sanitizeTodoGeneration(capture, {
+              ...data.result,
+              strategy: data.result.strategy ?? 'ai',
+            }),
+            clarificationRound
+          );
         })().finally(() => {
           generateInFlightRef.current.delete(cacheKey);
         });
@@ -298,8 +300,11 @@ export const useCaptureRouting = ({
     } catch {
       const existingTodos = getTodos();
       const appendFallback = buildLocalAppendTodoGeneration(capture, existingTodos);
-      const fallback = appendFallback ?? buildLocalTodoGenerationResult(
-        parseTodosFromCapture(capture.title, capture.content)
+      const fallback = sanitizeTodoGeneration(
+        capture,
+        appendFallback ?? buildLocalTodoGenerationResult(
+          parseTodosFromCapture(capture.title, capture.content)
+        )
       );
       rememberCachedAiValue(generateCacheRef.current, cacheKey, fallback);
       return fallback;

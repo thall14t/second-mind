@@ -50,6 +50,12 @@ function loadModules() {
     countSubtreeTodos,
     todoHasChildren,
     collectDescendantIds,
+    getTodoAncestorChain,
+    projectTodosForZoom,
+    buildAutoCollapsedParentIds,
+    insertSiblingTodo,
+    toggleTodoCompletion,
+    AUTO_COLLAPSE_OPEN_THRESHOLD,
   } = require(path.join(buildDir, 'utils', 'todoTree.js'));
   const {
     parseAppendToListIntent,
@@ -63,6 +69,12 @@ function loadModules() {
     countSubtreeTodos,
     todoHasChildren,
     collectDescendantIds,
+    getTodoAncestorChain,
+    projectTodosForZoom,
+    buildAutoCollapsedParentIds,
+    insertSiblingTodo,
+    toggleTodoCompletion,
+    AUTO_COLLAPSE_OPEN_THRESHOLD,
     parseAppendToListIntent,
     findTodoListParentByTitle,
     mergeTodoGenerationIntoExisting,
@@ -89,6 +101,12 @@ function runTests() {
     countSubtreeTodos,
     todoHasChildren,
     collectDescendantIds,
+    getTodoAncestorChain,
+    projectTodosForZoom,
+    buildAutoCollapsedParentIds,
+    insertSiblingTodo,
+    toggleTodoCompletion,
+    AUTO_COLLAPSE_OPEN_THRESHOLD,
     parseAppendToListIntent,
     findTodoListParentByTitle,
     mergeTodoGenerationIntoExisting,
@@ -114,6 +132,17 @@ function runTests() {
   assert.deepStrictEqual(
     houseChores.filter(todo => todo.parentId).map(todo => todo.title),
     ['Vacuum living room', 'Do dishes', 'Fold laundry']
+  );
+
+  const garden = parseTodosFromCapture(
+    '',
+    'Finish the garden including installing the gate door, placing headers, and trimming posts.'
+  );
+  assert.strictEqual(garden.length, 4);
+  assert.strictEqual(garden[0].title, 'Finish the garden');
+  assert.deepStrictEqual(
+    garden.filter(todo => todo.parentId).map(todo => todo.title),
+    ['Installing the gate door', 'Placing headers', 'Trimming posts']
   );
 
   const jeep = parseTodosFromCapture(
@@ -150,6 +179,61 @@ function runTests() {
   assert.strictEqual(descendants.has('b'), true);
   assert.strictEqual(descendants.has('c'), false);
 
+  const ancestorChain = getTodoAncestorChain(todos, 'b');
+  assert.deepStrictEqual(ancestorChain.map(todo => todo.id), ['a', 'b']);
+
+  const zoomed = projectTodosForZoom(todos, 'a');
+  assert.strictEqual(zoomed.length, 2);
+  assert.strictEqual(zoomed.find(todo => todo.id === 'a')?.parentId, undefined);
+  assert.strictEqual(zoomed.find(todo => todo.id === 'b')?.parentId, 'a');
+  assert.strictEqual(zoomed.some(todo => todo.id === 'c'), false);
+
+  const smallList = [
+    makeTodo('p1', 'Parent 1', { sortOrder: 0 }),
+    makeTodo('c1', 'Child', { parentId: 'p1', sortOrder: 0 }),
+  ];
+  assert.deepStrictEqual(buildAutoCollapsedParentIds(smallList), []);
+
+  const largeList = Array.from({ length: AUTO_COLLAPSE_OPEN_THRESHOLD }, (_, index) =>
+    makeTodo(`open-${index}`, `Task ${index}`, { sortOrder: index })
+  );
+  largeList.push(makeTodo('parent', 'Parent', { sortOrder: AUTO_COLLAPSE_OPEN_THRESHOLD }));
+  largeList.push(makeTodo('child', 'Child', { parentId: 'parent', sortOrder: 0 }));
+  assert.deepStrictEqual(buildAutoCollapsedParentIds(largeList), ['parent']);
+
+  const nestedTodos = [
+    makeTodo('parent', 'Parent', { sortOrder: 0 }),
+    makeTodo('child', 'Child', { parentId: 'parent', sortOrder: 0 }),
+    makeTodo('grandchild', 'Grandchild', { parentId: 'child', sortOrder: 0 }),
+    makeTodo('leaf', 'Leaf', { sortOrder: 1 }),
+  ];
+  const completedSubtree = toggleTodoCompletion(nestedTodos, 'parent');
+  assert.strictEqual(completedSubtree.find(todo => todo.id === 'parent')?.completed, true);
+  assert.strictEqual(completedSubtree.find(todo => todo.id === 'child')?.completed, true);
+  assert.strictEqual(completedSubtree.find(todo => todo.id === 'grandchild')?.completed, true);
+  assert.strictEqual(completedSubtree.find(todo => todo.id === 'leaf')?.completed, false);
+
+  const reopenedParent = toggleTodoCompletion(completedSubtree, 'parent');
+  assert.strictEqual(reopenedParent.find(todo => todo.id === 'parent')?.completed, false);
+  assert.strictEqual(reopenedParent.find(todo => todo.id === 'child')?.completed, false);
+  assert.strictEqual(reopenedParent.find(todo => todo.id === 'grandchild')?.completed, false);
+
+  const completedLeaf = toggleTodoCompletion(nestedTodos, 'leaf');
+  assert.strictEqual(completedLeaf.find(todo => todo.id === 'leaf')?.completed, true);
+  assert.strictEqual(completedLeaf.find(todo => todo.id === 'parent')?.completed, false);
+
+  const inserted = insertSiblingTodo(todos, 'b', { title: 'Between' });
+  assert.ok(inserted);
+  assert.strictEqual(inserted.newTodoId.endsWith('-sibling'), true);
+  const insertedSibling = inserted.todos.find(todo => todo.id === inserted.newTodoId);
+  assert.strictEqual(insertedSibling?.parentId, 'a');
+  assert.strictEqual(insertedSibling?.title, 'Between');
+  const zoomedSiblings = inserted.todos
+    .filter(todo => todo.parentId === 'a')
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map(todo => todo.id);
+  assert.deepStrictEqual(zoomedSiblings, ['b', inserted.newTodoId]);
+
   const appendIntent = parseAppendToListIntent('', 'Add wipe counters to house chores');
   assert.deepStrictEqual(appendIntent, {
     taskTitle: 'wipe counters',
@@ -178,14 +262,26 @@ function runTests() {
   assert.strictEqual(localAppend?.todos[0].parentClientId, 'house-root');
   assert.strictEqual(localAppend?.todos[0].title, 'Wipe counters');
 
-  const merged = mergeTodoGenerationIntoExisting(
-    { todos: [], strategy: 'ai' },
+  const mergedLocal = mergeTodoGenerationIntoExisting(
+    { todos: [], strategy: 'local' },
     houseChoresTodos,
     { title: '', content: 'Add wipe counters to house chores' }
   );
-  assert.strictEqual(merged.length, 4);
-  const appended = merged.find(todo => todo.title === 'Wipe counters');
-  assert.strictEqual(appended?.parentId, 'house-root');
+  assert.strictEqual(mergedLocal.length, 4);
+  const appendedLocal = mergedLocal.find(todo => todo.title === 'Wipe counters');
+  assert.strictEqual(appendedLocal?.parentId, 'house-root');
+
+  const mergedAiIgnored = mergeTodoGenerationIntoExisting(
+    {
+      todos: [{ clientId: 'new-root', title: 'Standalone task', parentClientId: null, sortOrder: 0 }],
+      strategy: 'ai',
+    },
+    houseChoresTodos,
+    { title: '', content: 'Add wipe counters to house chores' }
+  );
+  assert.strictEqual(mergedAiIgnored.length, 4);
+  assert.strictEqual(mergedAiIgnored.some(todo => todo.title === 'Wipe counters'), false);
+  assert.strictEqual(mergedAiIgnored.some(todo => todo.title === 'Standalone task'), true);
 
   console.log('All todo utils tests passed.');
 }

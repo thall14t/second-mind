@@ -12,6 +12,7 @@ const API_BASE_URL = (process.env.AI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$
 const RESPONSES_URL = `${API_BASE_URL}/responses`;
 const API_KEY = process.env.XAI_API_KEY || process.env.OPENAI_API_KEY;
 const MODEL = process.env.AI_MODEL || process.env.XAI_MODEL || process.env.OPENAI_MODEL || (PROVIDER === 'openai' ? 'gpt-5.2' : 'grok-4-1-fast');
+const CLASSIFY_MODEL = process.env.AI_CLASSIFY_MODEL || MODEL;
 const AI_SERVER_CACHE_LIMIT = 48;
 const filingSuggestionCache = new Map();
 const filingSuggestionInFlight = new Map();
@@ -216,7 +217,7 @@ const server = http.createServer(async (req, res) => {
         captureClassificationCache,
         captureClassificationInFlight,
         buildAiCacheKey(body),
-        () => requestClassifyCapture(body, buildCaptureRoutingDeps())
+        () => requestClassifyCapture(body, buildCaptureRoutingDeps(CLASSIFY_MODEL))
       );
       sendJson(res, 200, { result });
       return;
@@ -308,10 +309,10 @@ function buildAiCacheKey(value) {
   return JSON.stringify(value);
 }
 
-function buildCaptureRoutingDeps() {
+function buildCaptureRoutingDeps(modelOverride) {
   return {
     apiKey: API_KEY,
-    model: MODEL,
+    model: modelOverride || MODEL,
     responsesUrl: RESPONSES_URL,
     fetch,
     extractOutputText,
@@ -1198,10 +1199,6 @@ function prepareTaxonomyAgnosticFilingContext(body) {
   };
 }
 
-function prepareSlimFilingCoreContext(body) {
-  return prepareTaxonomyAgnosticFilingContext(body);
-}
-
 function buildFullSuggestionFromCore(coreSuggestion, draft) {
   return {
     ...coreSuggestion,
@@ -1263,7 +1260,7 @@ function prepareSlimCaptureStructuringContext(body) {
       authority: 'You are the authoritative structuring and research step. Build the final card draft from capture text.',
       noteBody: 'suggestedContent should contain only the note, quote, or idea itself.',
       research: 'Recognize attributable content even when the capture omits citation. Fill source fields from your knowledge when reasonably confident.',
-      sourceFields: 'Populate suggestedSource when you can identify the work or medium. Blank fields mean unknown, not skipped by default.',
+      sourceFields: 'Populate suggestedSource when you can identify the work or medium. Blank fields mean unknown, not skipped by default. Source type cues: Book → author + page or chapter reference; Article → publication, headline, or byline; Web → URL or "link" or website name; Video → timestamp format like 1:12:04 or HH:MM:SS, words like clip, episode, podcast, stream, YouTube, or "he/she said at [time]"; Other → everything else.',
       location: 'Use suggestedSource.page for the best locator you can support. Leave it blank when uncertain.',
       title: 'suggestedTitle should be a short conceptual handle. Leave it blank if a good handle is not clear.',
       tags: 'Use suggestedTags sparingly for clear topical hooks only.',
@@ -1271,41 +1268,6 @@ function prepareSlimCaptureStructuringContext(body) {
       relatedAddresses: 'When context.existingCards is provided, set suggestedRelatedAddresses to up to 3 semantically related addresses from that list. Use only addresses present in context.existingCards.',
       corrections: 'List normalizations and research you actually performed, including inferred attribution.',
       restraint: 'Do not invent precise locators or URLs without basis. Reasonable attribution is encouraged.',
-    },
-  };
-}
-
-function prepareCaptureStructuringContext(body) {
-  const capture = body?.capture ?? {};
-  const heuristic = body?.heuristic ?? {};
-
-  return {
-    task: 'Turn this rough capture into a cleaner card draft by separating note content from source details.',
-    capture: {
-      title: String(capture.title || ''),
-      content: String(capture.content || ''),
-      sourceText: String(capture.sourceText || ''),
-    },
-    heuristicDraft: {
-      suggestedTitle: String(heuristic.suggestedTitle || ''),
-      suggestedContent: String(heuristic.suggestedContent || ''),
-      suggestedSource: {
-        type: String(heuristic.suggestedSource?.type || ''),
-        title: String(heuristic.suggestedSource?.title || ''),
-        author: String(heuristic.suggestedSource?.author || ''),
-        url: String(heuristic.suggestedSource?.url || ''),
-        page: String(heuristic.suggestedSource?.page || ''),
-        note: String(heuristic.suggestedSource?.note || ''),
-      },
-    },
-    outputRules: {
-      noteContent: 'suggestedContent should contain only the note body: the quote, paraphrase, or idea itself.',
-      sourceFields: 'Put source metadata in suggestedSource only when it is explicit or strongly implied by the capture.',
-      originalNotes: 'If the capture does not indicate a source, keep suggestedSource as blank fields with type Other.',
-      locationField: 'Use suggestedSource.page for the best precise locator available for that source type. Fill it when explicit or recoverable with high confidence from the source and note text; otherwise leave it blank.',
-      scriptureSource: 'For scripture, prefer the specific biblical book as title and do not use Bible as a generic author.',
-      workingTitle: 'Use suggestedTitle only when a short conceptual handle is clear. Prefer the core idea over a literal quote summary.',
-      blankSource: 'If no real source details are present, use type Other and leave the rest blank.',
     },
   };
 }

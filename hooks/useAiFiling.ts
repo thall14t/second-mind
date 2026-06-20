@@ -15,6 +15,7 @@ import {
   buildAiAssistPayload,
   buildTimedOutLocalFilingFallbackSuggestion,
   createFilingThinkingState,
+  ensureManualReviewFilingWhy,
   finalizeFilingSuggestion,
   normalizeHierarchicalSuggestion,
 } from '../utils/aiFiling';
@@ -102,7 +103,7 @@ export const useAiFiling = ({
   }, [patchThinkingState]);
 
   const setAiSuggestion = useCallback((suggestion: CardFilingSuggestion | null) => {
-    setAiSuggestionState(suggestion);
+    setAiSuggestionState(suggestion ? ensureManualReviewFilingWhy(suggestion) : null);
     if (!suggestion) {
       setAiSuggestionStatus(null);
     }

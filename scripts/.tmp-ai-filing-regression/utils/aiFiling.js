@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.buildTimedOutLocalFilingFallbackSuggestion = exports.finalizeFilingSuggestion = exports.buildManualReviewFallbackSuggestion = exports.normalizeHierarchicalSuggestion = exports.mergeFilingSuggestionWithLocalDetails = exports.buildAiAssistPayload = exports.buildSmartCategoryShortlist = exports.applyFilingThinkingResult = exports.createFilingThinkingState = exports.resolveSuggestedNewCategoryRange = exports.findSmallestContainingRange = void 0;
+exports.buildTimedOutLocalFilingFallbackSuggestion = exports.finalizeFilingSuggestion = exports.buildManualReviewFallbackSuggestion = exports.ensureManualReviewFilingWhy = exports.buildFilingWhyContext = exports.normalizeHierarchicalSuggestion = exports.buildCardFormFieldsFromCaptureEnrichment = exports.buildDraftFromCaptureStructuring = exports.mergeFilingSuggestionWithLocalDetails = exports.buildAiAssistPayload = exports.buildSmartCategoryShortlist = exports.applyFilingThinkingResult = exports.createFilingThinkingState = exports.resolveSuggestedNewCategoryRange = exports.findSmallestContainingRange = void 0;
 const aiCataloguing_1 = require("./aiCataloguing");
 const antinet_1 = require("./antinet");
 const AI_SHORTLIST_STOPWORDS = new Set([
@@ -274,6 +274,9 @@ const mergeFilingSuggestionWithLocalDetails = (suggestion, localDetails, draftSo
     const normalizedSuggestionSource = (0, antinet_1.normalizeCardSource)(suggestion.suggestedSource);
     const normalizedDraftSource = (0, antinet_1.normalizeCardSource)(draftSource);
     const confidence = Math.max(suggestion.confidence ?? 0, localDetails.confidence ?? 0);
+    const resolvedAlternatives = (suggestion.alternativeSuggestions?.length ?? 0) > 0
+        ? suggestion.alternativeSuggestions
+        : alternativeSuggestions;
     return {
         ...suggestion,
         suggestedTitle: suggestion.suggestedTitle?.trim() || localDetails.suggestedTitle?.trim() || '',
@@ -289,13 +292,108 @@ const mergeFilingSuggestionWithLocalDetails = (suggestion, localDetails, draftSo
         confidenceBand: suggestion.confidenceBand ?? (0, aiCataloguing_1.deriveConfidenceBand)(confidence),
         alternativeSuggestions: (suggestion.confidenceBand ?? (0, aiCataloguing_1.deriveConfidenceBand)(confidence)) === 'high'
             ? []
-            : alternativeSuggestions.map(candidate => ({
+            : (resolvedAlternatives ?? []).map(candidate => ({
                 ...candidate,
                 alternativeSuggestions: [],
             })),
     };
 };
 exports.mergeFilingSuggestionWithLocalDetails = mergeFilingSuggestionWithLocalDetails;
+const buildDraftFromCaptureStructuring = (enrichment, address = '') => ({
+    address,
+    title: enrichment.suggestedTitle?.trim() ?? '',
+    content: enrichment.suggestedContent?.trim() ?? '',
+    tags: enrichment.suggestedTags ?? [],
+    source: (0, antinet_1.normalizeCardSource)(enrichment.suggestedSource),
+});
+exports.buildDraftFromCaptureStructuring = buildDraftFromCaptureStructuring;
+const mergeTags = (baseTags, extraTags) => {
+    const merged = Array.from(new Set([
+        ...baseTags.map(tag => tag.trim()).filter(Boolean),
+        ...extraTags.map(tag => tag.trim()).filter(Boolean),
+    ]));
+    return merged.join(', ');
+};
+const mergeRelatedAddresses = (baseAddresses, extraAddresses, cards, excludeAddress) => {
+    const existingCardAddresses = new Set(cards.map(card => (0, antinet_1.normalizeAddress)(card.address)));
+    const excluded = excludeAddress ? (0, antinet_1.normalizeAddress)(excludeAddress) : '';
+    const merged = Array.from(new Set([
+        ...baseAddresses.map(antinet_1.normalizeAddress).filter(Boolean),
+        ...extraAddresses
+            .map(antinet_1.normalizeAddress)
+            .filter(address => existingCardAddresses.has(address))
+            .filter(address => address !== excluded),
+    ]));
+    return merged.join(', ');
+};
+const defaultCardSource = () => ({ type: 'Other' });
+const sourceFieldIsRicher = (candidate, current) => {
+    const normalizedCandidate = (0, antinet_1.normalizeCardSource)(candidate) ?? defaultCardSource();
+    const normalizedCurrent = (0, antinet_1.normalizeCardSource)(current) ?? defaultCardSource();
+    const candidateScore = [
+        normalizedCandidate.title,
+        normalizedCandidate.author,
+        normalizedCandidate.url,
+        normalizedCandidate.page,
+        normalizedCandidate.note,
+        normalizedCandidate.type !== 'Other' ? normalizedCandidate.type : '',
+    ].filter(Boolean).length;
+    const currentScore = [
+        normalizedCurrent.title,
+        normalizedCurrent.author,
+        normalizedCurrent.url,
+        normalizedCurrent.page,
+        normalizedCurrent.note,
+        normalizedCurrent.type !== 'Other' ? normalizedCurrent.type : '',
+    ].filter(Boolean).length;
+    return candidateScore > currentScore;
+};
+const buildCardFormFieldsFromCaptureEnrichment = ({ capture, enrichment, filingSuggestion = null, cards = [], cardAddress = '', }) => {
+    const enrichmentSource = (0, antinet_1.normalizeCardSource)(enrichment?.suggestedSource);
+    let title = enrichment?.suggestedTitle?.trim() || capture.title;
+    let content = enrichment?.suggestedContent?.trim() || capture.content;
+    let status = enrichment?.suggestedStatus ?? 'Seed';
+    let tagsText = (enrichment?.suggestedTags ?? []).join(', ');
+    let relatedAddressesText = (enrichment?.suggestedRelatedAddresses ?? []).join(', ');
+    let source = enrichmentSource ?? (0, antinet_1.normalizeCardSource)({
+        type: 'Other',
+        note: capture.sourceText?.trim() || undefined,
+    }) ?? defaultCardSource();
+    if (filingSuggestion) {
+        if (filingSuggestion.suggestedTitle?.trim()) {
+            title = filingSuggestion.suggestedTitle.trim();
+        }
+        if (filingSuggestion.suggestedContent?.trim()) {
+            content = filingSuggestion.suggestedContent.trim();
+        }
+        if (filingSuggestion.suggestedTags.length > 0) {
+            tagsText = mergeTags(tagsText ? tagsText.split(',').map(tag => tag.trim()) : [], filingSuggestion.suggestedTags);
+        }
+        if (filingSuggestion.suggestedRelatedAddresses.length > 0) {
+            relatedAddressesText = mergeRelatedAddresses(relatedAddressesText ? relatedAddressesText.split(',').map(address => address.trim()) : [], filingSuggestion.suggestedRelatedAddresses, cards, cardAddress);
+        }
+        if (['Seed', 'Growing', 'Evergreen'].includes(filingSuggestion.suggestedStatus)) {
+            status = filingSuggestion.suggestedStatus;
+        }
+        if (sourceFieldIsRicher(filingSuggestion.suggestedSource, source)) {
+            source = (0, antinet_1.normalizeCardSource)(filingSuggestion.suggestedSource) ?? source;
+        }
+    }
+    return {
+        title,
+        content,
+        status,
+        tagsText,
+        relatedAddressesText,
+        sourceType: source.type,
+        sourceTitle: source.title ?? '',
+        sourceAuthor: source.author ?? '',
+        sourceUrl: source.url ?? '',
+        sourcePage: source.page ?? '',
+        sourceNote: source.note ?? capture.sourceText ?? '',
+    };
+};
+exports.buildCardFormFieldsFromCaptureEnrichment = buildCardFormFieldsFromCaptureEnrichment;
 const normalizeHierarchicalSuggestion = ({ suggestion, cards, editingCardId, allCategories, }) => {
     const normalizedSuggestion = { ...suggestion };
     const cardsForAddressing = cards.filter(card => card.id !== editingCardId);
@@ -325,7 +423,64 @@ const normalizeHierarchicalSuggestion = ({ suggestion, cards, editingCardId, all
     return normalizedSuggestion;
 };
 exports.normalizeHierarchicalSuggestion = normalizeHierarchicalSuggestion;
-const buildManualReviewFallbackSuggestion = ({ draft, baseSuggestion, reasoning, alternatives = [], }) => (0, aiCataloguing_1.forceManualReviewSuggestion)(baseSuggestion, draft, reasoning, alternatives, Math.min(0.52, baseSuggestion.confidence ?? 0.52));
+const buildFilingWhyContext = (attempted, notAppliedReason) => {
+    let considered = 'Second Mind compared your card against the category tree.';
+    if (attempted.mode === 'new_category') {
+        const parent = [attempted.suggestedParentRange, attempted.suggestedParentTitle]
+            .map(value => value?.trim())
+            .filter(Boolean)
+            .join(' — ');
+        const shelf = attempted.suggestedNewCategoryTitle?.trim();
+        if (shelf && parent) {
+            considered = `New shelf "${shelf}" under ${parent}`;
+        }
+        else if (shelf) {
+            considered = `New shelf "${shelf}"`;
+        }
+        else if (parent) {
+            considered = `A new shelf under ${parent}`;
+        }
+    }
+    else if (attempted.mode === 'existing_category') {
+        const label = [attempted.suggestedCategoryRange, attempted.suggestedCategoryTitle]
+            .map(value => value?.trim())
+            .filter(Boolean)
+            .join(' — ');
+        if (label) {
+            considered = `Existing shelf ${label}`;
+        }
+    }
+    else if (attempted.reasoning?.trim()) {
+        considered = attempted.reasoning.trim();
+    }
+    return {
+        considered,
+        notApplied: notAppliedReason.trim() || 'Second Mind needs a quick manual review for this filing.',
+    };
+};
+exports.buildFilingWhyContext = buildFilingWhyContext;
+const ensureManualReviewFilingWhy = (suggestion) => {
+    if (suggestion.mode !== 'manual_review' || suggestion.filingWhy) {
+        return suggestion;
+    }
+    const attempted = suggestion.alternativeSuggestions?.find(candidate => candidate.mode !== 'manual_review') ??
+        suggestion.alternativeSuggestions?.[0] ??
+        suggestion;
+    const notAppliedReason = suggestion.reasoning?.trim() ||
+        'Second Mind needs a quick manual review for this filing.';
+    return {
+        ...suggestion,
+        filingWhy: (0, exports.buildFilingWhyContext)(attempted, notAppliedReason),
+    };
+};
+exports.ensureManualReviewFilingWhy = ensureManualReviewFilingWhy;
+const buildManualReviewFallbackSuggestion = ({ draft, baseSuggestion, reasoning, alternatives = [], }) => {
+    const suggestion = (0, aiCataloguing_1.forceManualReviewSuggestion)(baseSuggestion, draft, reasoning, alternatives, Math.min(0.52, baseSuggestion.confidence ?? 0.52));
+    return {
+        ...suggestion,
+        filingWhy: (0, exports.buildFilingWhyContext)(baseSuggestion, reasoning),
+    };
+};
 exports.buildManualReviewFallbackSuggestion = buildManualReviewFallbackSuggestion;
 const finalizeFilingSuggestion = ({ suggestion, draft, filingPlan, allCategories, cards, editingCardId, }) => {
     const normalizedSuggestion = (0, exports.normalizeHierarchicalSuggestion)({
@@ -393,7 +548,7 @@ const finalizeFilingSuggestion = ({ suggestion, draft, filingPlan, allCategories
             ],
         });
     }
-    return mergedSuggestion;
+    return (0, exports.ensureManualReviewFilingWhy)(mergedSuggestion);
 };
 exports.finalizeFilingSuggestion = finalizeFilingSuggestion;
 const buildTimedOutLocalFilingFallbackSuggestion = ({ draft, filingPlan, allCategories, cards, editingCardId, }) => {

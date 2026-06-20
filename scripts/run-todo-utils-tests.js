@@ -14,6 +14,7 @@ function compileModules() {
     path.join(appRoot, 'utils', 'todoTree.ts'),
     path.join(appRoot, 'utils', 'todoDates.ts'),
     path.join(appRoot, 'utils', 'todoParsing.ts'),
+    path.join(appRoot, 'utils', 'todoTaskTitles.ts'),
     path.join(appRoot, 'utils', 'todoAppend.ts'),
     path.join(appRoot, 'types.ts'),
     '--module',
@@ -142,8 +143,24 @@ function runTests() {
   assert.strictEqual(garden[0].title, 'Finish the garden');
   assert.deepStrictEqual(
     garden.filter(todo => todo.parentId).map(todo => todo.title),
-    ['Installing the gate door', 'Placing headers', 'Trimming posts']
+    ['Install the gate door', 'Place headers', 'Trim posts']
   );
+
+  const multiProject = parseTodosFromCapture(
+    '',
+    'I need to do the garden including installing the gate, trimming the posts, and placing the headers. I need to finish the walk-in including putting up trim and patching holes. I need to build the built in bookcase including planning the build, buying the wood, and staining the trim.'
+  );
+  assert.strictEqual(multiProject.filter(todo => !todo.parentId).length, 3);
+  assert.deepStrictEqual(
+    multiProject.filter(todo => !todo.parentId).map(todo => todo.title),
+    ['Do the garden', 'Finish the walk-in', 'Build the built in bookcase']
+  );
+  const gardenChildren = multiProject.filter(todo => todo.parentId === multiProject.find(t => t.title === 'Do the garden')?.id).map(todo => todo.title);
+  assert.deepStrictEqual(gardenChildren, ['Install the gate', 'Trim the posts', 'Place the headers']);
+  const walkInChildren = multiProject.filter(todo => todo.parentId === multiProject.find(t => t.title === 'Finish the walk-in')?.id).map(todo => todo.title);
+  assert.deepStrictEqual(walkInChildren, ['Put up trim', 'Patch holes']);
+  const bookcaseChildren = multiProject.filter(todo => todo.parentId === multiProject.find(t => t.title === 'Build the built in bookcase')?.id).map(todo => todo.title);
+  assert.deepStrictEqual(bookcaseChildren, ['Plan the build', 'Buy the wood', 'Stain the trim']);
 
   const jeep = parseTodosFromCapture(
     '',

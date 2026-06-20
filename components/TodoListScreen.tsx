@@ -97,6 +97,7 @@ export default function TodoListScreen({
   const [editContent, setEditContent] = useState('');
   const [editRelatedAddressesText, setEditRelatedAddressesText] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
+  const [editingDetailsExpanded, setEditingDetailsExpanded] = useState(false);
 
   const displayTodos = useMemo(
     () => (zoomedTodoId ? projectTodosForZoom(todos, zoomedTodoId) : todos),
@@ -198,6 +199,7 @@ export default function TodoListScreen({
       setEditContent('');
       setEditRelatedAddressesText('');
       setEditDueDate('');
+      setEditingDetailsExpanded(false);
       return;
     }
 
@@ -277,7 +279,8 @@ export default function TodoListScreen({
     setEditingTodoId(null);
   };
 
-  const openEditing = (todo: Todo) => {
+  const openEditing = (todo: Todo, options?: { expandDetails?: boolean }) => {
+    setEditingDetailsExpanded(Boolean(options?.expandDetails));
     setEditingTodoId(todo.id);
   };
 
@@ -395,19 +398,66 @@ export default function TodoListScreen({
     };
   }, [editingTodoId, scrollEditingTodoIntoView]);
 
-  const handleOpenEditing = useCallback(async (todo: Todo) => {
+  const handleDeleteTodo = useCallback((todoId: string) => {
+    Alert.alert(
+      'Delete Task?',
+      'This removes the task and any sub-tasks.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void onDeleteTodo(todoId);
+            if (zoomedTodoId === todoId) {
+              setZoomedTodoId(null);
+            }
+            collapseEditing();
+          },
+        },
+      ]
+    );
+  }, [onDeleteTodo, zoomedTodoId]);
+
+  const handleOpenEditing = useCallback(async (todo: Todo, options?: { expandDetails?: boolean }) => {
     if (editingTodoId === todo.id) {
+      if (options?.expandDetails) {
+        setEditingDetailsExpanded(true);
+      }
       return;
     }
 
     cancelPendingEditDismiss();
     editingRowSwitchRef.current = true;
     await persistEditing();
-    openEditing(todo);
+    openEditing(todo, options);
     setTimeout(() => {
       editingRowSwitchRef.current = false;
     }, EDIT_BLUR_DISMISS_DELAY_MS + 50);
   }, [cancelPendingEditDismiss, editingTodoId, persistEditing]);
+
+  const handleTodoLongPress = useCallback((todo: Todo) => {
+    Alert.alert(
+      todo.title.trim() || 'Task',
+      'Edit notes and due date, or delete this task.',
+      [
+        {
+          text: 'Edit details',
+          onPress: () => {
+            void handleOpenEditing(todo, { expandDetails: true });
+          },
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            handleDeleteTodo(todo.id);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  }, [handleDeleteTodo, handleOpenEditing]);
 
   const handleZoomIntoTodo = useCallback(async (todoId: string) => {
     await persistEditing();
@@ -434,6 +484,7 @@ export default function TodoListScreen({
     setEditContent('');
     setEditRelatedAddressesText('');
     setEditDueDate('');
+    setEditingDetailsExpanded(false);
   };
 
   const toggleSubtree = (todoId: string) => {
@@ -485,27 +536,6 @@ export default function TodoListScreen({
   useEffect(() => () => {
     void persistEditingRef.current();
   }, []);
-
-  const handleDeleteTodo = (todoId: string) => {
-    Alert.alert(
-      'Delete Task?',
-      'This removes the task and any sub-tasks.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            void onDeleteTodo(todoId);
-            if (zoomedTodoId === todoId) {
-              setZoomedTodoId(null);
-            }
-            collapseEditing();
-          },
-        },
-      ]
-    );
-  };
 
   const renderNestingGutter = (depth: number) => {
     if (depth === 0) {
@@ -624,6 +654,7 @@ export default function TodoListScreen({
         params={params}
         theme={theme}
         editingTodoId={editingTodoId}
+        editingDetailsExpanded={editingTodoId === todo.id && editingDetailsExpanded}
         editTitle={editTitle}
         editContent={editContent}
         editDueDate={editDueDate}
@@ -639,7 +670,7 @@ export default function TodoListScreen({
         onToggleSubtree={toggleSubtree}
         onOpenEditing={todoItem => { void handleOpenEditing(todoItem); }}
         onZoomIntoTodo={todoId => { void handleZoomIntoTodo(todoId); }}
-        onDeleteTodo={handleDeleteTodo}
+        onTodoLongPress={handleTodoLongPress}
         onTitleSubmit={todoItem => { void handleTitleSubmit(todoItem); }}
         onEditTitleChange={setEditTitle}
         onEditingFieldFocus={handleEditingFieldFocus}

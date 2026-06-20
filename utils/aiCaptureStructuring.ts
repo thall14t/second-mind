@@ -457,34 +457,4 @@ export const mergeCaptureStructuringResultV2 = (
   };
 };
 
-export const isCaptureStructuringConfidentV2 = (
-  capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>,
-  result: CaptureStructuringResult
-) => {
-  const normalizedRawContent = normalizeWhitespaceForCapture(capture.content);
-  const normalizedSuggestedContent = normalizeWhitespaceForCapture(result.suggestedContent);
-  const structuredSource = normalizeCardSource(result.suggestedSource);
-  const combinedText = [capture.content, capture.sourceText ?? ''].filter(Boolean).join(' ').trim();
-  const hasStructuredSource = Boolean(
-    structuredSource?.title || structuredSource?.author || structuredSource?.url || structuredSource?.page
-  );
-  const contentWasCleaned =
-    Boolean(normalizedSuggestedContent) && normalizedSuggestedContent !== normalizedRawContent;
-  const hasSeparateSourceText = Boolean(capture.sourceText?.trim());
-  const hasQuotedBody = /[\u201c"][^"\u201c\u201d]{3,}[\u201d"]|'[^']{3,}'/s.test(combinedText);
-  const hasExplicitUrl = /\b(?:https?:\/\/|www\.)\S+/i.test(combinedText);
-  const hasSourceSeparator = /^\s*.+?\s+(?:-|--|\u2014)\s+.+$/s.test(capture.content.trim());
-  const titleLooksNoisy = Boolean(
-    structuredSource?.title &&
-    (structuredSource.title.split(/\s+/).length > 8 || /[.!?]/.test(structuredSource.title))
-  );
 
-  return Boolean(
-    !titleLooksNoisy &&
-    (
-      (hasStructuredSource && contentWasCleaned && (hasQuotedBody || hasExplicitUrl || hasSourceSeparator)) ||
-      (hasStructuredSource && hasSeparateSourceText) ||
-      (structuredSource?.url && normalizedSuggestedContent)
-    )
-  );
-};

@@ -197,7 +197,7 @@ This replaces `/api/structure-capture` on the **normal Quick Capture card path**
 }
 ```
 
-`localDraft` is always produced client-side via `buildLocalCaptureDraft()` before the AI call.
+`localDraft` is always produced client-side via `buildMinimalCaptureStructuringDraft()` before the AI call.
 
 ### Response
 
@@ -240,30 +240,35 @@ Use `localDraft` as the enrichment result with `strategy: 'local'` and `confiden
 
 **Must not:** file cards, pick categories, or invent card addresses. May suggest `relatedAddresses` only when existing card addresses are provided in context.
 
+### Three-layer model (do not blur these roles)
+
+| Layer | Owner | Responsibility |
+|-------|--------|----------------|
+| **AI generation** | Server model | Authoritative structuring: grouping, nesting, interpreting prose |
+| **Local parser** | Client `parseTodosFromCapture()` | **Offline fallback + weak hints only.** List-shaped captures: bullets, numbered lines, comma lists, simple `need to X including Y, Z` clauses |
+| **Invariant sanitizer** | Client + server `applyTodoGenerationInvariants()` | Final gate on **any** tree (AI or local). Repairs systematic violations; never capture-specific branches |
+
+**Policy for new bugs:** add an **invariant + regression test**, not a new parser branch — unless the capture is strictly list-shaped and must work offline.
+
 ### Request
 
 ```json
 {
   "capture": { "...": "InboxCapture fields" },
-  "localDraft": {
-    "todos": [
-      {
-        "title": "string",
-        "content": "string (optional)",
-        "parentId": "string | null",
-        "sortOrder": 0,
-        "dueDate": "YYYY-MM-DD (optional)"
-      }
-    ],
-    "strategy": "local"
+  "heuristicHints": {
+    "todos": [ { "clientId": "...", "title": "...", "parentClientId": null, "sortOrder": 0 } ],
+    "confidence": "low",
+    "scope": "list_shapes_only",
+    "note": "Narrow offline parser. Override freely."
   },
   "context": {
-    "existingCardAddresses": ["0102a", "0401b"]
+    "existingCardAddresses": ["0102a", "0401b"],
+    "existingTodos": []
   }
 }
 ```
 
-`localDraft.todos` comes from `parseTodosFromCapture()` — always sent as a baseline.
+`heuristicHints.todos` comes from `buildHeuristicTodoHints()` → `parseTodosFromCapture()`. These are **fallible hints**, not authoritative output.
 
 `context.existingCardAddresses` is optional, capped (~50), so the model can link todos to real cards when the capture mentions them.
 
@@ -293,13 +298,28 @@ Use `localDraft` as the enrichment result with `strategy: 'local'` and `confiden
 
 `clientId` / `parentClientId` are **temporary tree keys** for the response only. The app assigns real `Todo.id` values on save.
 
-### Todo generation rules
+### Todo generation rules (AI prompt principles)
 
 1. Preserve nesting: parent + children via `parentClientId`.
 2. Do not flatten a list into a single todo unless the capture truly has one item.
-3. Infer `dueDate` only when explicit or strongly implied ("by Friday", "2026-06-20"). Otherwise omit.
-4. Set `relatedAddresses` only for addresses present in `context.existingCardAddresses`.
-5. Prefer improving titles over inventing new tasks the capture does not imply.
+3. One root parent per project when capture chains multiple `need to … including …` clauses.
+4. Infer `dueDate` only when explicit or strongly implied ("by Friday", "2026-06-20"). Otherwise omit.
+5. Set `relatedAddresses` only for addresses present in `context.existingCardAddresses`.
+6. Include every task the capture implies. Normalize titles; do not add unrelated tasks or drop listed subtasks.
+
+### Todo tree invariants (enforced by sanitizer on AI and local output)
+
+Implemented in `utils/todoGenerationInvariants.ts`. Stable codes for tests:
+
+| Code | Rule |
+|------|------|
+| `parent_no_including` | Root titles must not contain "including" |
+| `parent_not_capture_echo` | Root titles must not repeat the full capture text |
+| `parent_length_ratio` | Root with children must not be much longer than average subtask |
+| `child_imperative` | Child/leaf titles use imperative phrases, not gerunds |
+| `valid_parent_ref` | Every `parentClientId` must reference a todo in the same tree |
+
+The sanitizer **repairs** violations where possible (shorten parents, normalize tense, detach orphan refs). Regression tests assert invariants, not brittle exact titles.
 
 ### Client outcome (todo route success)
 
@@ -310,7 +330,7 @@ Use `localDraft` as the enrichment result with `strategy: 'local'` and `confiden
 
 ### Local fallback (generate timeout / server error)
 
-Use `localDraft.todos` directly (from `parseTodosFromCapture`). Job completes with `strategy: 'local'`.
+Use `parseTodosFromCapture()` → `buildLocalTodoGenerationResult()` → **`sanitizeTodoGeneration()`** (same invariant gate as AI). Job completes with `strategy: 'local'`. Quality may be lower for prose captures; invariants still apply.
 
 ---
 
@@ -413,7 +433,7 @@ In-flight dedup per capture ID prevents duplicate parallel work.
 
 ### Local heuristic layer
 
-- `buildLocalCaptureDraft()` before enrich
+- `buildMinimalCaptureStructuringDraft()` before enrich
 - `parseTodosFromCapture()` before generate
 - Cheap `localSignals` for classify hints
 - All fallback paths when AI unavailable

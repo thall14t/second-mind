@@ -1,12 +1,6 @@
-import { TodoGenerationDraft } from '../types';
+import { HeuristicTodoHints } from '../types';
 import { mapTodosToGenerationDrafts } from './captureJobs';
 import { parseTodosFromCapture } from './todoParsing';
-
-export interface HeuristicTodoHints {
-  todos: TodoGenerationDraft[];
-  confidence: 'low';
-  note: string;
-}
 
 export function buildHeuristicTodoHints(
   title: string,
@@ -18,6 +12,10 @@ export function buildHeuristicTodoHints(
   return {
     todos: mapTodosToGenerationDrafts(todos),
     confidence: 'low',
-    note: 'Machine-generated guess from local heuristics. Often wrong on parent titles and edge cases. Override freely using capture text.',
+    scope: 'list_shapes_only',
+    note:
+      'Narrow offline parser only: bullets, numbered lines, comma lists, and simple '
+      + '"need to X including Y, Z" clauses. Prose grouping and multi-project interpretation '
+      + 'are AI responsibilities. Override freely using capture text.',
   };
 }

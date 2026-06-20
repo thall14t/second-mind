@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { styles } from '../styles';
 import { getTheme } from '../theme';
@@ -100,6 +100,11 @@ export default function NewCardScreen({
   onCancel,
 }: NewCardScreenProps) {
   const theme = getTheme(darkMode);
+  const [filingWhyExpanded, setFilingWhyExpanded] = useState(false);
+
+  useEffect(() => {
+    setFilingWhyExpanded(false);
+  }, [aiSuggestion?.mode, aiSuggestion?.reasoning, aiSuggestion?.filingWhy?.considered]);
   const stepGlyph = {
     pending: '...',
     active: '...',
@@ -375,6 +380,26 @@ export default function NewCardScreen({
               </Text>
             ) : null}
             <Text style={[styles.aiSuggestionReason, { color: theme.text }]}>{aiSuggestion.reasoning}</Text>
+            {aiSuggestion.mode === 'manual_review' && aiSuggestion.filingWhy ? (
+              <View style={styles.aiWhyRow}>
+                <TouchableOpacity
+                  style={[styles.aiWhyButton, { borderColor: theme.border, backgroundColor: theme.secondaryBackground }]}
+                  onPress={() => setFilingWhyExpanded(previous => !previous)}
+                >
+                  <Text style={[styles.aiWhyButtonText, { color: theme.secondaryButtonText }]}>
+                    {filingWhyExpanded ? 'Hide why' : 'Why?'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            {aiSuggestion.mode === 'manual_review' && aiSuggestion.filingWhy && filingWhyExpanded ? (
+              <View style={[styles.aiWhyPanel, { borderColor: theme.border, backgroundColor: theme.background }]}>
+                <Text style={[styles.aiWhyLabel, { color: theme.subtleText }]}>Considered</Text>
+                <Text style={[styles.aiWhyBody, { color: theme.text }]}>{aiSuggestion.filingWhy.considered}</Text>
+                <Text style={[styles.aiWhyLabel, { color: theme.subtleText }]}>Not applied</Text>
+                <Text style={[styles.aiWhyBody, { color: theme.text }]}>{aiSuggestion.filingWhy.notApplied}</Text>
+              </View>
+            ) : null}
             {aiSuggestion.alternativeSuggestions && aiSuggestion.alternativeSuggestions.length > 0 && (
               <View style={styles.aiAlternativeBlock}>
                 <Text style={[styles.aiSuggestionLine, { color: theme.mutedText }]}>Possible alternatives</Text>

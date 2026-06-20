@@ -17,6 +17,7 @@ interface TodoRowItemProps {
   params: RenderItemParams<FlatTodoItem>;
   theme: ReturnType<typeof getTheme>;
   editingTodoId: string | null;
+  editingDetailsExpanded: boolean;
   editTitle: string;
   editContent: string;
   editDueDate: string;
@@ -32,7 +33,7 @@ interface TodoRowItemProps {
   onToggleSubtree: (todoId: string) => void;
   onOpenEditing: (todo: Todo) => void;
   onZoomIntoTodo: (todoId: string) => void;
-  onDeleteTodo: (todoId: string) => void;
+  onTodoLongPress: (todo: Todo) => void;
   onTitleSubmit: (todo: Todo) => void;
   onEditTitleChange: (value: string) => void;
   onEditingFieldFocus: (todoId: string) => void;
@@ -45,6 +46,7 @@ export default function TodoRowItem({
   params,
   theme,
   editingTodoId,
+  editingDetailsExpanded,
   editTitle,
   editContent,
   editDueDate,
@@ -60,7 +62,7 @@ export default function TodoRowItem({
   onToggleSubtree,
   onOpenEditing,
   onZoomIntoTodo,
-  onDeleteTodo,
+  onTodoLongPress,
   onTitleSubmit,
   onEditTitleChange,
   onEditingFieldFocus,
@@ -71,12 +73,7 @@ export default function TodoRowItem({
   const { item, drag, isActive } = params;
   const { todo, depth } = item;
   const isEditing = editingTodoId === todo.id;
-  const showDetails = isEditing && (
-    Boolean(editContent.trim())
-    || Boolean(editDueDate.trim())
-    || Boolean(editRelatedAddressesText.trim())
-    || Boolean((todo.relatedAddresses ?? []).length)
-  );
+  const showDetails = isEditing && editingDetailsExpanded;
 
   const rowGestures = useMemo(() => {
     if (isEditing) {
@@ -103,7 +100,7 @@ export default function TodoRowItem({
     const longPress = Gesture.LongPress()
       .minDuration(450)
       .onEnd(() => {
-        runOnJS(onDeleteTodo)(todo.id);
+        runOnJS(onTodoLongPress)(todo);
       });
 
     const titleGestures = Gesture.Exclusive(
@@ -130,7 +127,7 @@ export default function TodoRowItem({
     canIndent,
     canOutdent,
     hasChildren,
-    onDeleteTodo,
+    onTodoLongPress,
     onIndentTodo,
     onOpenEditing,
     onOutdentTodo,

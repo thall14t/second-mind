@@ -30,15 +30,10 @@ import {
 
 /**
  * Filing architecture:
- * - V1 (buildFilingPlan) is the current live bottom-up scorer. It remains in place for safety.
- * - V2 (buildFilingPlanV2) is the new function-first experimental planner.
+ * - V1 (buildFilingPlan) remains for regression comparisons only.
+ * - V2 (buildFilingPlanV2) is the production planner used by the app.
  * - V2 works top-down: classify note function -> rank plausible master ranges ->
  *   score shelves inside those branches -> only then consider new shelf naming.
- * - V3 (buildFilingPlanV3) is a hybrid execution strategy layered on top of V2.
- * - V3 keeps V2's function-first local reasoning, then chooses an AI lane:
- *   local_only, parallel, or ai_first.
- * - deriveReusableShelfTitle stays as a final polish step, not the primary steering mechanism.
- * - The app should keep using V1 until regression comparisons show the newer planner is clearly stronger.
  */
 
 const TOKEN_STOPWORDS = new Set([
@@ -94,37 +89,7 @@ const TOKEN_STOPWORDS = new Set([
   'within',
 ]);
 
-const TITLE_CONNECTORS = new Set(['a', 'an', 'and', 'as', 'at', 'for', 'from', 'in', 'of', 'on', 'the', 'to', 'with']);
-const AUTHOR_PARTICLES = new Set(['al', 'bin', 'da', 'de', 'del', 'der', 'di', 'du', 'ibn', 'la', 'le', 'van', 'von']);
-const PROSE_WORDS = new Set([
-  'act',
-  'all',
-  'are',
-  'be',
-  'been',
-  'being',
-  'did',
-  'do',
-  'does',
-  'had',
-  'has',
-  'have',
-  'is',
-  'it',
-  'like',
-  'must',
-  'our',
-  'should',
-  'stand',
-  'this',
-  'what',
-  'when',
-  'who',
-  'why',
-  'will',
-  'with',
-  'you',
-]);
+
 
 const CANONICAL_BIBLE_BOOKS = [
   'Genesis',
@@ -194,22 +159,6 @@ const CANONICAL_BIBLE_BOOKS = [
   'Jude',
   'Revelation',
 ] as const;
-
-const BOOK_AUTHOR_HINTS: Partial<Record<(typeof CANONICAL_BIBLE_BOOKS)[number], string>> = {
-  Romans: 'Paul',
-  '1 Corinthians': 'Paul',
-  '2 Corinthians': 'Paul',
-  Galatians: 'Paul',
-  Ephesians: 'Paul',
-  Philippians: 'Paul',
-  Colossians: 'Paul',
-  '1 Thessalonians': 'Paul',
-  '2 Thessalonians': 'Paul',
-  '1 Timothy': 'Paul',
-  '2 Timothy': 'Paul',
-  Titus: 'Paul',
-  Philemon: 'Paul',
-};
 
 const MASTER_RANGE_SEMANTIC_CUES: Record<string, string[]> = {
   '0000-0999': ['belief', 'discernment', 'duty', 'duties', 'evidence', 'ethic', 'faith', 'judgment', 'knowledge', 'logic', 'love', 'loves', 'meaning', 'moral', 'principle', 'reason', 'truth', 'virtue', 'wisdom', 'calibration', 'bias'],
@@ -323,23 +272,14 @@ const FUNCTION_TO_TITLE_AFFINITY_CUES: Record<NoteFunction, string[]> = {
 
 type DraftShape = FilingDraft;
 
-interface LocalCaptureBuildResult {
-  result: CaptureStructuringResult;
-  preview: ThinkingStructurePreview;
-  shouldUseAi: boolean;
-}
-
 interface FilingPlan {
   payload: FilingLeafDecisionPayload;
   preview: ThinkingFilingPreview;
   quickSuggestion: CardFilingSuggestion;
   localDetails: CardFilingDetailsSuggestion;
   shouldUseAi: boolean;
-  aiLane?: FilingAiLane;
   noteFunction?: NoteFunction;
 }
-
-export type FilingAiLane = 'local_only' | 'parallel' | 'ai_first';
 
 export type NoteFunction =
   | 'idea_seed'
@@ -644,68 +584,6 @@ const isHighConfidenceReusableNewSuggestion = (
   )
 );
 
-const chooseFilingAiLane = ({
-  draft,
-  noteFunction,
-  quickSuggestion,
-  rejectedSuggestion,
-}: {
-  draft: DraftShape;
-  noteFunction: NoteFunction;
-  quickSuggestion: CardFilingSuggestion;
-  rejectedSuggestion?: CardFilingSuggestion | null;
-}): FilingAiLane => {
-  const filingText = buildFunctionText(draft).toLowerCase();
-  const confidence = quickSuggestion.confidence ?? 0;
-  const sourceHeavy = hasStructuredSourceEvidence(draft, filingText);
-  const shortOriginal = isShortUnsourcedOriginalNote(draft);
-  const strongExisting = quickSuggestion.mode === 'existing_category' && confidence >= 0.72;
-  const strongReusableNew = isHighConfidenceReusableNewSuggestion(quickSuggestion, draft);
-  const alternativeCount = quickSuggestion.alternativeSuggestions?.length ?? 0;
-  const creativeOrProject = noteFunction === 'idea_seed' || noteFunction === 'project_material';
-
-  if (rejectedSuggestion) {
-    return 'parallel';
-  }
-
-  if (quickSuggestion.mode === 'manual_review' && confidence < 0.48) {
-    return 'ai_first';
-  }
-
-  if (quickSuggestion.mode === 'new_category' && !isHighConfidenceReusableNewSuggestion(quickSuggestion, draft)) {
-    return confidence >= 0.62 ? 'parallel' : 'ai_first';
-  }
-
-  if (sourceHeavy) {
-    if (confidence >= 0.78 && quickSuggestion.mode !== 'manual_review') {
-      return 'parallel';
-    }
-    return 'ai_first';
-  }
-
-  if (creativeOrProject && strongReusableNew) {
-    return 'local_only';
-  }
-
-  if (noteFunction === 'practical_method' && confidence >= 0.78 && quickSuggestion.mode !== 'manual_review') {
-    return 'local_only';
-  }
-
-  if (shortOriginal && strongExisting) {
-    return 'local_only';
-  }
-
-  if (strongExisting && noteFunction === 'concept_note' && alternativeCount > 0) {
-    return 'parallel';
-  }
-
-  if (confidence >= 0.66 && quickSuggestion.mode !== 'manual_review') {
-    return 'parallel';
-  }
-
-  return 'ai_first';
-};
-
 const scoreSemanticRangeBoost = (
   range: string,
   draftText: string,
@@ -813,16 +691,6 @@ const findCanonicalBibleBook = (value: string) => {
   return CANONICAL_BIBLE_BOOKS.find(book => normalized.includes(normalizeBibleSearchText(book))) ?? null;
 };
 
-const extractQuotedText = (value: string) => {
-  const doubleQuoteMatch = value.match(/[“"]([^“”"]{4,})[”"]/s);
-  if (doubleQuoteMatch?.[1]) {
-    return cleanField(doubleQuoteMatch[1]);
-  }
-
-  const singleQuoteMatch = value.match(/'([^']{4,})'/s);
-  return singleQuoteMatch?.[1] ? cleanField(singleQuoteMatch[1]) : '';
-};
-
 const extractUrl = (value: string) => cleanField(value.match(/\b(?:https?:\/\/|www\.)\S+/i)?.[0] ?? '');
 
 const extractLocation = (value: string) => {
@@ -837,141 +705,7 @@ const extractLocation = (value: string) => {
   return cleanField(scriptureLocator ?? '');
 };
 
-const buildBodyCandidate = (content: string) => {
-  const normalizedContent = normalizeWhitespace(content);
-  if (!normalizedContent) {
-    return '';
-  }
-
-  const quoted = extractQuotedText(normalizedContent);
-  if (quoted) {
-    return quoted;
-  }
-
-  const afterLocator = normalizedContent.match(
-    /^(?:.+?\b(?:page|pages|p\.|pp\.|chapter|chap\.|section|sec\.|loc(?:ation)?|timestamp|verse|verses)\s*[:#-]?\s*[A-Za-z0-9:.-]+)\s*[,;:\-]?\s+(.+)$/i
-  )?.[1];
-  if (afterLocator) {
-    return cleanField(afterLocator);
-  }
-
-  const separatorMatch = normalizedContent.match(/^(.+?)\s+(?:-|--)\s+(.+)$/);
-  if (separatorMatch) {
-    return cleanField(separatorMatch[1]);
-  }
-
-  return normalizedContent;
-};
-
 const tokenizeWords = (value: string) => cleanField(value).split(/\s+/).filter(Boolean);
-
-const looksLikeAuthorToken = (token: string) =>
-  /^[A-Z][A-Za-z.'-]*$/.test(token) ||
-  /^[A-Z]{2,}$/.test(token) ||
-  /^[A-Z]\.[A-Z]\.?$/.test(token);
-
-const looksLikeTitleSegment = (value: string) => {
-  const cleaned = cleanField(value);
-  if (!cleaned || cleaned.length > 80 || /[!?]$/.test(cleaned)) {
-    return false;
-  }
-
-  if (findCanonicalBibleBook(cleaned)) {
-    return true;
-  }
-
-  const tokens = tokenizeWords(cleaned);
-  if (tokens.length === 0 || tokens.length > 8) {
-    return false;
-  }
-
-  const lowered = tokens.map(token => token.toLowerCase());
-  if (lowered.some(token => PROSE_WORDS.has(token))) {
-    return false;
-  }
-
-  const significant = tokens.filter(token => !TITLE_CONNECTORS.has(token.toLowerCase()));
-  if (significant.length === 0) {
-    return false;
-  }
-
-  const titleish = significant.filter(token =>
-    looksLikeAuthorToken(token) ||
-    /^\d+(?:st|nd|rd|th)?$/i.test(token) ||
-    /^[ivxlcdm]+$/i.test(token)
-  );
-
-  return titleish.length / significant.length >= 0.6 || tokens.length <= 4;
-};
-
-const looksLikeAuthorSegment = (value: string) => {
-  const cleaned = cleanField(value);
-  if (!cleaned || cleaned.length > 56 || /[.!?]/.test(cleaned)) {
-    return false;
-  }
-
-  const tokens = tokenizeWords(cleaned);
-  if (tokens.length === 0 || tokens.length > 5) {
-    return false;
-  }
-
-  const significant = tokens.filter(token => !AUTHOR_PARTICLES.has(token.toLowerCase()));
-  return significant.length > 0 && significant.every(looksLikeAuthorToken);
-};
-
-const inferLeadSource = (value: string) => {
-  const cleaned = cleanField(value);
-  const explicitByMatch = cleaned.match(/^(.+?)\s+by\s+(.+)$/i);
-  if (explicitByMatch && looksLikeTitleSegment(explicitByMatch[1]) && looksLikeAuthorSegment(explicitByMatch[2])) {
-    return {
-      title: cleanField(explicitByMatch[1]),
-      author: cleanField(explicitByMatch[2]),
-    };
-  }
-
-  const tokens = tokenizeWords(cleaned);
-  let splitIndex = 0;
-  while (splitIndex < tokens.length && looksLikeAuthorToken(tokens[splitIndex])) {
-    splitIndex += 1;
-  }
-
-  if (splitIndex >= 1 && splitIndex < tokens.length) {
-    const authorCandidate = tokens.slice(0, splitIndex).join(' ');
-    const titleCandidate = tokens.slice(splitIndex).join(' ');
-    if (looksLikeAuthorSegment(authorCandidate) && looksLikeTitleSegment(titleCandidate)) {
-      return {
-        author: cleanField(authorCandidate),
-        title: cleanField(titleCandidate),
-      };
-    }
-  }
-
-  if (looksLikeTitleSegment(cleaned)) {
-    return { author: '', title: cleaned };
-  }
-
-  return { author: '', title: '' };
-};
-
-const inferSourceType = (combinedText: string, url: string, title: string, author: string, location: string): CardSourceType => {
-  if (/\b(video|youtube|vimeo|timestamp|podcast)\b/i.test(combinedText)) {
-    return 'Video';
-  }
-
-  if (/\b(article|essay|journal|paper|newsletter|blog)\b/i.test(combinedText)) {
-    return url ? 'Web' : 'Article';
-  }
-
-  if (url) {
-    return 'Web';
-  }
-
-  if (title || author || location || /\b(book|chapter|verse|scripture|psalm|corinthians|romans)\b/i.test(combinedText)) {
-    return 'Book';
-  }
-
-  return 'Other';
-};
 
 const deriveReusableShelfTitle = (
   draft: DraftShape,
@@ -1272,136 +1006,6 @@ export const restrainStructuringToCapture = (
       correction => !/\b(source|author|page|url|title corrected)\b/i.test(correction)
     ),
   };
-};
-
-export const buildLocalCaptureDraft = (
-  capture: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>
-): LocalCaptureBuildResult => {
-  const rawTitle = cleanField(capture.title);
-  const rawContent = normalizeWhitespace(capture.content);
-  const rawSourceText = normalizeWhitespace(capture.sourceText ?? '');
-  const combinedText = [rawContent, rawSourceText].filter(Boolean).join(' ').trim();
-  const bodyCandidate = buildBodyCandidate(rawContent);
-  const bodyWasCleaned = cleanField(bodyCandidate) !== cleanField(rawContent);
-  const url = extractUrl(combinedText);
-  const location = extractLocation(combinedText);
-  const canonicalBibleBook = findCanonicalBibleBook(combinedText);
-
-  const leadCandidate = cleanField(
-    combinedText
-      .replace(extractQuotedText(combinedText), ' ')
-      .replace(bodyCandidate, ' ')
-      .replace(/\b(?:page|pages|p\.|pp\.|chapter|chap\.|section|sec\.|loc(?:ation)?|timestamp|verse|verses)\s*[:#-]?\s*[A-Za-z0-9:.-]+/gi, ' ')
-      .replace(/\b(?:https?:\/\/|www\.)\S+/gi, ' ')
-      .replace(/[“”"'`]/g, ' ')
-  );
-
-  const hasSourceCue = captureHasExplicitSourceCues(capture);
-  const leadSource = hasSourceCue ? inferLeadSource(leadCandidate) : { title: '', author: '' };
-  let sourceTitle = leadSource.title;
-  let sourceAuthor = leadSource.author;
-  const corrections: string[] = [];
-
-  if (canonicalBibleBook) {
-    if (sourceTitle && cleanField(sourceTitle).toLowerCase() !== canonicalBibleBook.toLowerCase()) {
-      corrections.push(`Source title corrected to ${canonicalBibleBook}`);
-    }
-    sourceTitle = canonicalBibleBook;
-    sourceAuthor = sourceAuthor || BOOK_AUTHOR_HINTS[canonicalBibleBook] || '';
-  }
-
-  if (location && /[.]$/.test(location)) {
-    corrections.push(`Location cleaned to ${location.replace(/[.]+$/, '')}`);
-  }
-
-  const sourceType = hasSourceCue
-    ? inferSourceType(combinedText, url, sourceTitle, sourceAuthor, location)
-    : 'Other';
-  const suggestedSource = normalizeCardSource(
-    hasSourceCue
-      ? {
-          type: sourceType,
-          title: sourceTitle,
-          author: sourceAuthor,
-          url,
-          page: cleanField(location.replace(/[.]+$/, '')),
-          note: rawSourceText || undefined,
-        }
-      : {
-          type: 'Other',
-          note: rawSourceText || undefined,
-        }
-  );
-
-  const result: CaptureStructuringResult = {
-    suggestedTitle: rawTitle,
-    suggestedContent: bodyCandidate || rawContent,
-    suggestedSource,
-    corrections,
-    confidence: rawTitle || suggestedSource || bodyWasCleaned ? 0.7 : 0.45,
-    confidenceBand: deriveConfidenceBand(rawTitle || suggestedSource || bodyWasCleaned ? 0.7 : 0.45),
-    strategy: 'local',
-  };
-
-  const shouldUseAi = Boolean(
-    !rawTitle ||
-    hasSourceCue ||
-    corrections.length > 0 ||
-    bodyWasCleaned ||
-    (result.confidence ?? 0) < 0.75
-  );
-
-  return {
-    result,
-    preview: {
-      rawCapture: [capture.title, capture.content, capture.sourceText ?? ''].filter(Boolean).join('\n'),
-      title: result.suggestedTitle,
-      body: result.suggestedContent,
-      sourceType: suggestedSource?.type ?? 'Other',
-      sourceTitle: suggestedSource?.title ?? '',
-      author: suggestedSource?.author ?? '',
-      location: suggestedSource?.page ?? '',
-      corrections,
-    },
-    shouldUseAi,
-  };
-};
-
-export const mergeCaptureStructuring = (
-  localResult: CaptureStructuringResult,
-  aiResult?: Partial<CaptureStructuringResult> | null,
-  capture?: Pick<InboxCapture, 'title' | 'content' | 'sourceText'>
-): CaptureStructuringResult => {
-  const aiSource = aiResult?.suggestedSource ?? undefined;
-  const useAiSource = Boolean(aiResult && structuringSourceHasFill(aiSource));
-  const hasSourceCue = capture ? captureHasExplicitSourceCues(capture) : true;
-  const suggestedSource = normalizeCardSource(
-    useAiSource || hasSourceCue
-      ? {
-          type: aiSource?.type ?? localResult.suggestedSource?.type ?? 'Other',
-          title: aiSource?.title || localResult.suggestedSource?.title,
-          author: aiSource?.author || localResult.suggestedSource?.author,
-          url: aiSource?.url || localResult.suggestedSource?.url,
-          page: aiSource?.page || localResult.suggestedSource?.page,
-          note: aiSource?.note || localResult.suggestedSource?.note || capture?.sourceText?.trim(),
-        }
-      : {
-          type: 'Other',
-          note: capture?.sourceText?.trim() || localResult.suggestedSource?.note,
-        }
-  );
-
-  const merged: CaptureStructuringResult = {
-    suggestedTitle: cleanField(aiResult?.suggestedTitle ?? '') || localResult.suggestedTitle,
-    suggestedContent: cleanField(aiResult?.suggestedContent ?? '') || localResult.suggestedContent,
-    suggestedSource,
-    corrections: mergeCorrections(localResult.corrections ?? [], aiResult?.corrections ?? []),
-    confidence: Math.max(localResult.confidence ?? 0, aiResult?.confidence ?? 0),
-    confidenceBand: deriveConfidenceBand(Math.max(localResult.confidence ?? 0, aiResult?.confidence ?? 0)),
-    strategy: aiResult ? 'merged' : localResult.strategy ?? 'local',
-  };
-
-  return capture ? restrainStructuringToCapture(capture, merged) : merged;
 };
 
 export const buildExistingCardSummariesForEnrichment = (
@@ -2275,40 +1879,6 @@ export const buildFilingPlanV2 = (input: {
   };
 };
 
-export const buildFilingPlanV3 = (input: {
-  draft: DraftShape;
-  categories: ManagedCategory[];
-  cards: Card[];
-  editingCardId?: string | null;
-  rejectedSuggestion?: CardFilingSuggestion | null;
-}): FilingPlan => {
-  const v2Plan = buildFilingPlanV2(input);
-  const noteFunction = v2Plan.noteFunction ?? classifyNoteFunction(input.draft);
-  const aiLane = v2Plan.shouldUseAi
-    ? chooseFilingAiLane({
-        draft: input.draft,
-        noteFunction,
-        quickSuggestion: v2Plan.quickSuggestion,
-        rejectedSuggestion: input.rejectedSuggestion,
-      })
-    : 'local_only';
-
-  const localOnlySuggestion = aiLane === 'local_only'
-    ? {
-        ...v2Plan.quickSuggestion,
-        reasoning: `V3 trusted the local ${noteFunction.replace(/_/g, ' ')} filing signal because it was already specific enough to use immediately.`,
-      }
-    : v2Plan.quickSuggestion;
-
-  return {
-    ...v2Plan,
-    noteFunction,
-    aiLane,
-    quickSuggestion: localOnlySuggestion,
-    shouldUseAi: aiLane !== 'local_only',
-  };
-};
-
 export const buildCapturePreview = (result: CaptureStructuringResult, rawCapture: string): ThinkingStructurePreview => ({
   rawCapture,
   title: result.suggestedTitle,
@@ -2318,23 +1888,6 @@ export const buildCapturePreview = (result: CaptureStructuringResult, rawCapture
   author: result.suggestedSource?.author ?? '',
   location: result.suggestedSource?.page ?? '',
   corrections: result.corrections ?? [],
-});
-
-export const mergeFilingCoreWithLocalDetails = (
-  suggestion: FilingLeafDecision,
-  localDetails: CardFilingDetailsSuggestion,
-  draft: DraftShape
-): CardFilingSuggestion => ({
-  ...suggestion,
-  suggestedTitle: draft.title.trim(),
-  suggestedContent: '',
-  suggestedTags: localDetails.suggestedTags,
-  suggestedStatus: localDetails.suggestedStatus,
-  suggestedRelatedAddresses: localDetails.suggestedRelatedAddresses,
-  suggestedSource: normalizeCardSource(draft.source),
-  corrections: [],
-  confidenceBand: deriveConfidenceBand(suggestion.confidence ?? 0),
-  alternativeSuggestions: [],
 });
 
 function findParentTopLevelRange(range: string, selectedRanges: FilingRangeCandidate[]) {

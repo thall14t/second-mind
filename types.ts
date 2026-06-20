@@ -140,6 +140,7 @@ export interface ExistingTodoSummary {
 export interface HeuristicTodoHints {
   todos: TodoGenerationDraft[];
   confidence: 'low';
+  scope: 'list_shapes_only';
   note: string;
 }
 

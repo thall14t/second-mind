@@ -780,14 +780,6 @@ export function applyEnrichmentToCapture(
   };
 }
 
-export function resolveCaptureRoute(job: CaptureJob): CaptureRoute | null {
-  if (job.userRouteOverride) {
-    return job.userRouteOverride;
-  }
-
-  return job.classification?.route ?? null;
-}
-
 export interface CaptureProcessingJobView {
   jobId: string;
   captureId: string;
@@ -916,10 +908,3 @@ export function buildCaptureProcessingLabel(count: number): string {
     : `Processing ${count} captures`;
 }
 
-export function countLinesMatchingBullets(content: string): number {
-  return content
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => BULLET_LINE_PATTERN.test(line))
-    .length;
-}

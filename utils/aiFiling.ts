@@ -6,6 +6,7 @@ import {
   CardSource,
   CaptureStructuringResult,
   FilingLeafCandidate,
+  FilingWhyContext,
   InboxCapture,
   ManagedCategory,
   ThinkingState,
@@ -382,6 +383,10 @@ export const mergeFilingSuggestionWithLocalDetails = (
   const normalizedSuggestionSource = normalizeCardSource(suggestion.suggestedSource);
   const normalizedDraftSource = normalizeCardSource(draftSource);
   const confidence = Math.max(suggestion.confidence ?? 0, localDetails.confidence ?? 0);
+  const resolvedAlternatives =
+    (suggestion.alternativeSuggestions?.length ?? 0) > 0
+      ? suggestion.alternativeSuggestions
+      : alternativeSuggestions;
 
   return {
     ...suggestion,
@@ -400,7 +405,7 @@ export const mergeFilingSuggestionWithLocalDetails = (
     alternativeSuggestions:
       (suggestion.confidenceBand ?? deriveConfidenceBand(confidence)) === 'high'
         ? []
-        : alternativeSuggestions.map(candidate => ({
+        : (resolvedAlternatives ?? []).map(candidate => ({
             ...candidate,
             alternativeSuggestions: [],
           })),
@@ -422,62 +427,6 @@ export const buildDraftFromCaptureStructuring = (
   tags: enrichment.suggestedTags ?? [],
   source: normalizeCardSource(enrichment.suggestedSource),
 });
-
-export const buildCataloguingPayloadFromCategories = ({
-  draft,
-  allCategories,
-}: {
-  draft: AiAssistPayload['draft'];
-  allCategories: ManagedCategory[];
-}): AiAssistPayload => ({
-  draft,
-  topLevelCategories: [],
-  categories: allCategories.map(category => ({
-    id: category.id,
-    range: category.range,
-    title: category.title,
-    isLeaf: Boolean(category.isLeaf),
-  })),
-});
-
-export const finalizePipelineFilingSuggestion = ({
-  suggestion,
-  enrichment,
-  cards,
-  allCategories,
-}: {
-  suggestion: CardFilingSuggestion;
-  enrichment: {
-    suggestedTitle?: string;
-    suggestedContent?: string;
-    suggestedSource?: CardSource;
-    suggestedTags?: string[];
-    suggestedStatus?: 'Seed' | 'Growing' | 'Evergreen';
-    suggestedRelatedAddresses?: string[];
-  };
-  cards: Card[];
-  allCategories: ManagedCategory[];
-}): CardFilingSuggestion => {
-  const normalized = normalizeHierarchicalSuggestion({
-    suggestion,
-    cards,
-    allCategories,
-  });
-
-  return {
-    ...normalized,
-    suggestedTitle: enrichment.suggestedTitle?.trim() || normalized.suggestedTitle,
-    suggestedContent: enrichment.suggestedContent?.trim() || normalized.suggestedContent,
-    suggestedTags: enrichment.suggestedTags?.length
-      ? enrichment.suggestedTags
-      : normalized.suggestedTags,
-    suggestedStatus: enrichment.suggestedStatus ?? normalized.suggestedStatus,
-    suggestedRelatedAddresses: enrichment.suggestedRelatedAddresses?.length
-      ? enrichment.suggestedRelatedAddresses
-      : normalized.suggestedRelatedAddresses,
-    suggestedSource: normalizeCardSource(enrichment.suggestedSource ?? normalized.suggestedSource),
-  };
-};
 
 export interface InboxCardFormFields {
   title: string;
@@ -663,6 +612,64 @@ export const normalizeHierarchicalSuggestion = ({
   return normalizedSuggestion;
 };
 
+export const buildFilingWhyContext = (
+  attempted: CardFilingSuggestion,
+  notAppliedReason: string
+): FilingWhyContext => {
+  let considered = 'Second Mind compared your card against the category tree.';
+
+  if (attempted.mode === 'new_category') {
+    const parent = [attempted.suggestedParentRange, attempted.suggestedParentTitle]
+      .map(value => value?.trim())
+      .filter(Boolean)
+      .join(' — ');
+    const shelf = attempted.suggestedNewCategoryTitle?.trim();
+    if (shelf && parent) {
+      considered = `New shelf "${shelf}" under ${parent}`;
+    } else if (shelf) {
+      considered = `New shelf "${shelf}"`;
+    } else if (parent) {
+      considered = `A new shelf under ${parent}`;
+    }
+  } else if (attempted.mode === 'existing_category') {
+    const label = [attempted.suggestedCategoryRange, attempted.suggestedCategoryTitle]
+      .map(value => value?.trim())
+      .filter(Boolean)
+      .join(' — ');
+    if (label) {
+      considered = `Existing shelf ${label}`;
+    }
+  } else if (attempted.reasoning?.trim()) {
+    considered = attempted.reasoning.trim();
+  }
+
+  return {
+    considered,
+    notApplied: notAppliedReason.trim() || 'Second Mind needs a quick manual review for this filing.',
+  };
+};
+
+export const ensureManualReviewFilingWhy = (
+  suggestion: CardFilingSuggestion
+): CardFilingSuggestion => {
+  if (suggestion.mode !== 'manual_review' || suggestion.filingWhy) {
+    return suggestion;
+  }
+
+  const attempted =
+    suggestion.alternativeSuggestions?.find(candidate => candidate.mode !== 'manual_review') ??
+    suggestion.alternativeSuggestions?.[0] ??
+    suggestion;
+  const notAppliedReason =
+    suggestion.reasoning?.trim() ||
+    'Second Mind needs a quick manual review for this filing.';
+
+  return {
+    ...suggestion,
+    filingWhy: buildFilingWhyContext(attempted, notAppliedReason),
+  };
+};
+
 export const buildManualReviewFallbackSuggestion = ({
   draft,
   baseSuggestion,
@@ -673,13 +680,20 @@ export const buildManualReviewFallbackSuggestion = ({
   baseSuggestion: CardFilingSuggestion;
   reasoning: string;
   alternatives?: CardFilingSuggestion[];
-}) => forceManualReviewSuggestion(
-  baseSuggestion,
-  draft,
-  reasoning,
-  alternatives,
-  Math.min(0.52, baseSuggestion.confidence ?? 0.52)
-);
+}): CardFilingSuggestion => {
+  const suggestion = forceManualReviewSuggestion(
+    baseSuggestion,
+    draft,
+    reasoning,
+    alternatives,
+    Math.min(0.52, baseSuggestion.confidence ?? 0.52)
+  );
+
+  return {
+    ...suggestion,
+    filingWhy: buildFilingWhyContext(baseSuggestion, reasoning),
+  };
+};
 
 export const finalizeFilingSuggestion = ({
   suggestion,
@@ -783,7 +797,7 @@ export const finalizeFilingSuggestion = ({
     });
   }
 
-  return mergedSuggestion;
+  return ensureManualReviewFilingWhy(mergedSuggestion);
 };
 
 export const buildTimedOutLocalFilingFallbackSuggestion = ({

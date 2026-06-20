@@ -1,20 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mergeFilingCoreWithLocalDetails = exports.buildCapturePreview = exports.buildFilingPlanV3 = exports.buildFilingPlanV2 = exports.buildFilingPlan = exports.buildCapturePayload = exports.mergeCaptureStructuring = exports.buildLocalCaptureDraft = exports.forceManualReviewSuggestion = exports.isReusableShelfTitle = exports.deriveConfidenceBand = void 0;
+exports.buildCapturePreview = exports.buildFilingPlanV2 = exports.buildFilingPlan = exports.buildCapturePayload = exports.buildExistingCardSummariesForEnrichment = exports.restrainStructuringToCapture = exports.captureHasExplicitSourceCues = exports.buildMinimalCaptureStructuringDraft = exports.forceManualReviewSuggestion = exports.isReusableShelfTitle = exports.deriveConfidenceBand = void 0;
 exports.classifyNoteFunction = classifyNoteFunction;
 exports.rankMasterRangesByFunction = rankMasterRangesByFunction;
 const antinet_1 = require("./antinet");
 /**
  * Filing architecture:
- * - V1 (buildFilingPlan) is the current live bottom-up scorer. It remains in place for safety.
- * - V2 (buildFilingPlanV2) is the new function-first experimental planner.
+ * - V1 (buildFilingPlan) remains for regression comparisons only.
+ * - V2 (buildFilingPlanV2) is the production planner used by the app.
  * - V2 works top-down: classify note function -> rank plausible master ranges ->
  *   score shelves inside those branches -> only then consider new shelf naming.
- * - V3 (buildFilingPlanV3) is a hybrid execution strategy layered on top of V2.
- * - V3 keeps V2's function-first local reasoning, then chooses an AI lane:
- *   local_only, parallel, or ai_first.
- * - deriveReusableShelfTitle stays as a final polish step, not the primary steering mechanism.
- * - The app should keep using V1 until regression comparisons show the newer planner is clearly stronger.
  */
 const TOKEN_STOPWORDS = new Set([
     'across',
@@ -67,37 +62,6 @@ const TOKEN_STOPWORDS = new Set([
     'with',
     'without',
     'within',
-]);
-const TITLE_CONNECTORS = new Set(['a', 'an', 'and', 'as', 'at', 'for', 'from', 'in', 'of', 'on', 'the', 'to', 'with']);
-const AUTHOR_PARTICLES = new Set(['al', 'bin', 'da', 'de', 'del', 'der', 'di', 'du', 'ibn', 'la', 'le', 'van', 'von']);
-const PROSE_WORDS = new Set([
-    'act',
-    'all',
-    'are',
-    'be',
-    'been',
-    'being',
-    'did',
-    'do',
-    'does',
-    'had',
-    'has',
-    'have',
-    'is',
-    'it',
-    'like',
-    'must',
-    'our',
-    'should',
-    'stand',
-    'this',
-    'what',
-    'when',
-    'who',
-    'why',
-    'will',
-    'with',
-    'you',
 ]);
 const CANONICAL_BIBLE_BOOKS = [
     'Genesis',
@@ -167,21 +131,6 @@ const CANONICAL_BIBLE_BOOKS = [
     'Jude',
     'Revelation',
 ];
-const BOOK_AUTHOR_HINTS = {
-    Romans: 'Paul',
-    '1 Corinthians': 'Paul',
-    '2 Corinthians': 'Paul',
-    Galatians: 'Paul',
-    Ephesians: 'Paul',
-    Philippians: 'Paul',
-    Colossians: 'Paul',
-    '1 Thessalonians': 'Paul',
-    '2 Thessalonians': 'Paul',
-    '1 Timothy': 'Paul',
-    '2 Timothy': 'Paul',
-    Titus: 'Paul',
-    Philemon: 'Paul',
-};
 const MASTER_RANGE_SEMANTIC_CUES = {
     '0000-0999': ['belief', 'discernment', 'duty', 'duties', 'evidence', 'ethic', 'faith', 'judgment', 'knowledge', 'logic', 'love', 'loves', 'meaning', 'moral', 'principle', 'reason', 'truth', 'virtue', 'wisdom', 'calibration', 'bias'],
     '1000-1999': ['ancient', 'century', 'civilization', 'empire', 'era', 'history', 'historical', 'kingdom', 'medieval', 'war'],
@@ -490,47 +439,6 @@ const isShortUnsourcedOriginalNote = (draft) => {
 const isHighConfidenceReusableNewSuggestion = (suggestion, draft) => (suggestion.mode === 'new_category' &&
     (suggestion.confidence ?? 0) >= 0.76 &&
     (0, exports.isReusableShelfTitle)(suggestion.suggestedNewCategoryTitle, draft, suggestion.suggestedParentTitle));
-const chooseFilingAiLane = ({ draft, noteFunction, quickSuggestion, rejectedSuggestion, }) => {
-    const filingText = buildFunctionText(draft).toLowerCase();
-    const confidence = quickSuggestion.confidence ?? 0;
-    const sourceHeavy = hasStructuredSourceEvidence(draft, filingText);
-    const shortOriginal = isShortUnsourcedOriginalNote(draft);
-    const strongExisting = quickSuggestion.mode === 'existing_category' && confidence >= 0.72;
-    const strongReusableNew = isHighConfidenceReusableNewSuggestion(quickSuggestion, draft);
-    const alternativeCount = quickSuggestion.alternativeSuggestions?.length ?? 0;
-    const creativeOrProject = noteFunction === 'idea_seed' || noteFunction === 'project_material';
-    if (rejectedSuggestion) {
-        return 'parallel';
-    }
-    if (quickSuggestion.mode === 'manual_review' && confidence < 0.48) {
-        return 'ai_first';
-    }
-    if (quickSuggestion.mode === 'new_category' && !isHighConfidenceReusableNewSuggestion(quickSuggestion, draft)) {
-        return confidence >= 0.62 ? 'parallel' : 'ai_first';
-    }
-    if (sourceHeavy) {
-        if (confidence >= 0.78 && quickSuggestion.mode !== 'manual_review') {
-            return 'parallel';
-        }
-        return 'ai_first';
-    }
-    if (creativeOrProject && strongReusableNew) {
-        return 'local_only';
-    }
-    if (noteFunction === 'practical_method' && confidence >= 0.78 && quickSuggestion.mode !== 'manual_review') {
-        return 'local_only';
-    }
-    if (shortOriginal && strongExisting) {
-        return 'local_only';
-    }
-    if (strongExisting && noteFunction === 'concept_note' && alternativeCount > 0) {
-        return 'parallel';
-    }
-    if (confidence >= 0.66 && quickSuggestion.mode !== 'manual_review') {
-        return 'parallel';
-    }
-    return 'ai_first';
-};
 const scoreSemanticRangeBoost = (range, draftText, semanticHints, sourceType, rangeTitle = '') => {
     let score = countCueHits(draftText, [
         ...(MASTER_RANGE_SEMANTIC_CUES[range] ?? []),
@@ -628,14 +536,6 @@ const findCanonicalBibleBook = (value) => {
     }
     return CANONICAL_BIBLE_BOOKS.find(book => normalized.includes(normalizeBibleSearchText(book))) ?? null;
 };
-const extractQuotedText = (value) => {
-    const doubleQuoteMatch = value.match(/[“"]([^“”"]{4,})[”"]/s);
-    if (doubleQuoteMatch?.[1]) {
-        return cleanField(doubleQuoteMatch[1]);
-    }
-    const singleQuoteMatch = value.match(/'([^']{4,})'/s);
-    return singleQuoteMatch?.[1] ? cleanField(singleQuoteMatch[1]) : '';
-};
 const extractUrl = (value) => cleanField(value.match(/\b(?:https?:\/\/|www\.)\S+/i)?.[0] ?? '');
 const extractLocation = (value) => {
     const explicitLocator = value.match(/\b(?:page|pages|p\.|pp\.|chapter|chap\.|section|sec\.|loc(?:ation)?|timestamp|minute|verse|verses)\s*[:#-]?\s*([A-Za-z0-9:.-]+)/i)?.[1];
@@ -645,110 +545,7 @@ const extractLocation = (value) => {
     const scriptureLocator = value.match(/\b(\d{1,3}:\d{1,3}(?:-\d{1,3})?)\b/)?.[1];
     return cleanField(scriptureLocator ?? '');
 };
-const buildBodyCandidate = (content) => {
-    const normalizedContent = normalizeWhitespace(content);
-    if (!normalizedContent) {
-        return '';
-    }
-    const quoted = extractQuotedText(normalizedContent);
-    if (quoted) {
-        return quoted;
-    }
-    const afterLocator = normalizedContent.match(/^(?:.+?\b(?:page|pages|p\.|pp\.|chapter|chap\.|section|sec\.|loc(?:ation)?|timestamp|verse|verses)\s*[:#-]?\s*[A-Za-z0-9:.-]+)\s*[,;:\-]?\s+(.+)$/i)?.[1];
-    if (afterLocator) {
-        return cleanField(afterLocator);
-    }
-    const separatorMatch = normalizedContent.match(/^(.+?)\s+(?:-|--)\s+(.+)$/);
-    if (separatorMatch) {
-        return cleanField(separatorMatch[1]);
-    }
-    return normalizedContent;
-};
 const tokenizeWords = (value) => cleanField(value).split(/\s+/).filter(Boolean);
-const looksLikeAuthorToken = (token) => /^[A-Z][A-Za-z.'-]*$/.test(token) ||
-    /^[A-Z]{2,}$/.test(token) ||
-    /^[A-Z]\.[A-Z]\.?$/.test(token);
-const looksLikeTitleSegment = (value) => {
-    const cleaned = cleanField(value);
-    if (!cleaned || cleaned.length > 80 || /[!?]$/.test(cleaned)) {
-        return false;
-    }
-    if (findCanonicalBibleBook(cleaned)) {
-        return true;
-    }
-    const tokens = tokenizeWords(cleaned);
-    if (tokens.length === 0 || tokens.length > 8) {
-        return false;
-    }
-    const lowered = tokens.map(token => token.toLowerCase());
-    if (lowered.some(token => PROSE_WORDS.has(token))) {
-        return false;
-    }
-    const significant = tokens.filter(token => !TITLE_CONNECTORS.has(token.toLowerCase()));
-    if (significant.length === 0) {
-        return false;
-    }
-    const titleish = significant.filter(token => looksLikeAuthorToken(token) ||
-        /^\d+(?:st|nd|rd|th)?$/i.test(token) ||
-        /^[ivxlcdm]+$/i.test(token));
-    return titleish.length / significant.length >= 0.6 || tokens.length <= 4;
-};
-const looksLikeAuthorSegment = (value) => {
-    const cleaned = cleanField(value);
-    if (!cleaned || cleaned.length > 56 || /[.!?]/.test(cleaned)) {
-        return false;
-    }
-    const tokens = tokenizeWords(cleaned);
-    if (tokens.length === 0 || tokens.length > 5) {
-        return false;
-    }
-    const significant = tokens.filter(token => !AUTHOR_PARTICLES.has(token.toLowerCase()));
-    return significant.length > 0 && significant.every(looksLikeAuthorToken);
-};
-const inferLeadSource = (value) => {
-    const cleaned = cleanField(value);
-    const explicitByMatch = cleaned.match(/^(.+?)\s+by\s+(.+)$/i);
-    if (explicitByMatch && looksLikeTitleSegment(explicitByMatch[1]) && looksLikeAuthorSegment(explicitByMatch[2])) {
-        return {
-            title: cleanField(explicitByMatch[1]),
-            author: cleanField(explicitByMatch[2]),
-        };
-    }
-    const tokens = tokenizeWords(cleaned);
-    let splitIndex = 0;
-    while (splitIndex < tokens.length && looksLikeAuthorToken(tokens[splitIndex])) {
-        splitIndex += 1;
-    }
-    if (splitIndex >= 1 && splitIndex < tokens.length) {
-        const authorCandidate = tokens.slice(0, splitIndex).join(' ');
-        const titleCandidate = tokens.slice(splitIndex).join(' ');
-        if (looksLikeAuthorSegment(authorCandidate) && looksLikeTitleSegment(titleCandidate)) {
-            return {
-                author: cleanField(authorCandidate),
-                title: cleanField(titleCandidate),
-            };
-        }
-    }
-    if (looksLikeTitleSegment(cleaned)) {
-        return { author: '', title: cleaned };
-    }
-    return { author: '', title: '' };
-};
-const inferSourceType = (combinedText, url, title, author, location) => {
-    if (/\b(video|youtube|vimeo|timestamp|podcast)\b/i.test(combinedText)) {
-        return 'Video';
-    }
-    if (/\b(article|essay|journal|paper|newsletter|blog)\b/i.test(combinedText)) {
-        return url ? 'Web' : 'Article';
-    }
-    if (url) {
-        return 'Web';
-    }
-    if (title || author || location || /\b(book|chapter|verse|scripture|psalm|corinthians|romans)\b/i.test(combinedText)) {
-        return 'Book';
-    }
-    return 'Other';
-};
 const deriveReusableShelfTitle = (draft, hostRange, hostTitle, semanticHints) => {
     const text = buildDraftText(draft).toLowerCase();
     const hostLabel = `${hostRange} ${hostTitle}`.toLowerCase();
@@ -908,108 +705,89 @@ const deriveLocalStatus = (draft, relatedAddresses) => {
     }
     return 'Seed';
 };
-const buildLocalCaptureDraft = (capture) => {
-    const rawTitle = cleanField(capture.title);
-    const rawContent = normalizeWhitespace(capture.content);
+const buildMinimalCaptureStructuringDraft = (capture) => ({
+    suggestedTitle: cleanField(capture.title),
+    suggestedContent: normalizeWhitespace(capture.content),
+    suggestedSource: (0, antinet_1.normalizeCardSource)({
+        type: 'Other',
+        note: capture.sourceText?.trim() || undefined,
+    }),
+    suggestedTags: [],
+    suggestedStatus: 'Seed',
+    suggestedRelatedAddresses: [],
+    strategy: 'local',
+    confidenceBand: 'low',
+});
+exports.buildMinimalCaptureStructuringDraft = buildMinimalCaptureStructuringDraft;
+const captureHasExplicitSourceCues = (capture) => {
     const rawSourceText = normalizeWhitespace(capture.sourceText ?? '');
+    const rawContent = normalizeWhitespace(capture.content);
     const combinedText = [rawContent, rawSourceText].filter(Boolean).join(' ').trim();
-    const bodyCandidate = buildBodyCandidate(rawContent);
-    const bodyWasCleaned = cleanField(bodyCandidate) !== cleanField(rawContent);
     const url = extractUrl(combinedText);
     const location = extractLocation(combinedText);
     const canonicalBibleBook = findCanonicalBibleBook(combinedText);
-    const leadCandidate = cleanField(combinedText
-        .replace(extractQuotedText(combinedText), ' ')
-        .replace(bodyCandidate, ' ')
-        .replace(/\b(?:page|pages|p\.|pp\.|chapter|chap\.|section|sec\.|loc(?:ation)?|timestamp|verse|verses)\s*[:#-]?\s*[A-Za-z0-9:.-]+/gi, ' ')
-        .replace(/\b(?:https?:\/\/|www\.)\S+/gi, ' ')
-        .replace(/[“”"'`]/g, ' '));
-    const leadSource = inferLeadSource(leadCandidate);
-    let sourceTitle = leadSource.title;
-    let sourceAuthor = leadSource.author;
-    const corrections = [];
-    if (canonicalBibleBook) {
-        if (sourceTitle && cleanField(sourceTitle).toLowerCase() !== canonicalBibleBook.toLowerCase()) {
-            corrections.push(`Source title corrected to ${canonicalBibleBook}`);
-        }
-        sourceTitle = canonicalBibleBook;
-        sourceAuthor = sourceAuthor || BOOK_AUTHOR_HINTS[canonicalBibleBook] || '';
+    return Boolean(rawSourceText
+        || url
+        || location
+        || canonicalBibleBook
+        || /\b(?:book|article|essay|journal|paper|newsletter|blog|video|podcast|quote|quoted|citation|source)\b/i.test(combinedText)
+        || /\bby\b/i.test(combinedText));
+};
+exports.captureHasExplicitSourceCues = captureHasExplicitSourceCues;
+const structuringSourceHasFill = (source) => {
+    if (!source) {
+        return false;
     }
-    if (location && /[.]$/.test(location)) {
-        corrections.push(`Location cleaned to ${location.replace(/[.]+$/, '')}`);
+    const normalized = (0, antinet_1.normalizeCardSource)(source);
+    if (!normalized) {
+        return false;
     }
-    const sourceType = inferSourceType(combinedText, url, sourceTitle, sourceAuthor, location);
-    const suggestedSource = (0, antinet_1.normalizeCardSource)({
-        type: sourceType,
-        title: sourceTitle,
-        author: sourceAuthor,
-        url,
-        page: cleanField(location.replace(/[.]+$/, '')),
-        note: rawSourceText || undefined,
-    });
-    const result = {
-        suggestedTitle: rawTitle,
-        suggestedContent: bodyCandidate || rawContent,
-        suggestedSource,
-        corrections,
-        confidence: rawTitle || suggestedSource || bodyWasCleaned ? 0.7 : 0.45,
-        confidenceBand: (0, exports.deriveConfidenceBand)(rawTitle || suggestedSource || bodyWasCleaned ? 0.7 : 0.45),
-        strategy: 'local',
-    };
-    const hasSourceCue = Boolean(rawSourceText ||
-        url ||
-        location ||
-        canonicalBibleBook ||
-        /\b(?:book|article|essay|journal|paper|newsletter|blog|video|podcast|quote|quoted|citation|source)\b/i.test(combinedText) ||
-        /\bby\b/i.test(leadCandidate));
-    const shouldUseAi = Boolean(!rawTitle ||
-        hasSourceCue ||
-        corrections.length > 0 ||
-        bodyWasCleaned ||
-        (result.confidence ?? 0) < 0.75);
+    return Boolean(normalized.title?.trim()
+        || normalized.author?.trim()
+        || normalized.url?.trim()
+        || normalized.page?.trim()
+        || (normalized.type && normalized.type !== 'Other'));
+};
+const restrainStructuringToCapture = (capture, result) => {
+    const isAiProduced = result.strategy === 'ai' || result.strategy === 'merged';
+    if (isAiProduced) {
+        return {
+            ...result,
+            suggestedSource: (0, antinet_1.normalizeCardSource)(result.suggestedSource ?? {
+                type: 'Other',
+                note: capture.sourceText?.trim() || undefined,
+            }),
+        };
+    }
+    if ((0, exports.captureHasExplicitSourceCues)(capture) || structuringSourceHasFill(result.suggestedSource)) {
+        return result;
+    }
     return {
-        result,
-        preview: {
-            rawCapture: [capture.title, capture.content, capture.sourceText ?? ''].filter(Boolean).join('\n'),
-            title: result.suggestedTitle,
-            body: result.suggestedContent,
-            sourceType: suggestedSource?.type ?? 'Other',
-            sourceTitle: suggestedSource?.title ?? '',
-            author: suggestedSource?.author ?? '',
-            location: suggestedSource?.page ?? '',
-            corrections,
-        },
-        shouldUseAi,
+        ...result,
+        suggestedSource: (0, antinet_1.normalizeCardSource)({
+            type: 'Other',
+            note: capture.sourceText?.trim() || undefined,
+        }),
+        corrections: (result.corrections ?? []).filter(correction => !/\b(source|author|page|url|title corrected)\b/i.test(correction)),
     };
 };
-exports.buildLocalCaptureDraft = buildLocalCaptureDraft;
-const mergeCaptureStructuring = (localResult, aiResult) => {
-    const suggestedSource = (0, antinet_1.normalizeCardSource)({
-        type: aiResult?.suggestedSource?.type ?? localResult.suggestedSource?.type ?? 'Other',
-        title: aiResult?.suggestedSource?.title || localResult.suggestedSource?.title,
-        author: aiResult?.suggestedSource?.author || localResult.suggestedSource?.author,
-        url: aiResult?.suggestedSource?.url || localResult.suggestedSource?.url,
-        page: aiResult?.suggestedSource?.page || localResult.suggestedSource?.page,
-        note: aiResult?.suggestedSource?.note || localResult.suggestedSource?.note,
-    });
-    return {
-        suggestedTitle: cleanField(aiResult?.suggestedTitle ?? '') || localResult.suggestedTitle,
-        suggestedContent: cleanField(aiResult?.suggestedContent ?? '') || localResult.suggestedContent,
-        suggestedSource,
-        corrections: mergeCorrections(localResult.corrections ?? [], aiResult?.corrections ?? []),
-        confidence: Math.max(localResult.confidence ?? 0, aiResult?.confidence ?? 0),
-        confidenceBand: (0, exports.deriveConfidenceBand)(Math.max(localResult.confidence ?? 0, aiResult?.confidence ?? 0)),
-        strategy: aiResult ? 'merged' : localResult.strategy ?? 'local',
-    };
+exports.restrainStructuringToCapture = restrainStructuringToCapture;
+const buildExistingCardSummariesForEnrichment = (cards, limit = 50) => {
+    return cards.slice(0, limit).map(card => ({
+        address: (0, antinet_1.normalizeAddress)(card.address),
+        title: card.title.trim(),
+        tags: card.tags?.slice(0, 4),
+    }));
 };
-exports.mergeCaptureStructuring = mergeCaptureStructuring;
-const buildCapturePayload = (capture, localDraft) => ({
+exports.buildExistingCardSummariesForEnrichment = buildExistingCardSummariesForEnrichment;
+const buildCapturePayload = (capture, localDraft, context) => ({
     capture: {
         title: capture.title,
         content: capture.content,
         sourceText: capture.sourceText,
     },
     localDraft,
+    context,
 });
 exports.buildCapturePayload = buildCapturePayload;
 const scoreFunctionTitleMatch = (noteFunction, title) => {
@@ -1657,32 +1435,6 @@ const buildFilingPlanV2 = (input) => {
     };
 };
 exports.buildFilingPlanV2 = buildFilingPlanV2;
-const buildFilingPlanV3 = (input) => {
-    const v2Plan = (0, exports.buildFilingPlanV2)(input);
-    const noteFunction = v2Plan.noteFunction ?? classifyNoteFunction(input.draft);
-    const aiLane = v2Plan.shouldUseAi
-        ? chooseFilingAiLane({
-            draft: input.draft,
-            noteFunction,
-            quickSuggestion: v2Plan.quickSuggestion,
-            rejectedSuggestion: input.rejectedSuggestion,
-        })
-        : 'local_only';
-    const localOnlySuggestion = aiLane === 'local_only'
-        ? {
-            ...v2Plan.quickSuggestion,
-            reasoning: `V3 trusted the local ${noteFunction.replace(/_/g, ' ')} filing signal because it was already specific enough to use immediately.`,
-        }
-        : v2Plan.quickSuggestion;
-    return {
-        ...v2Plan,
-        noteFunction,
-        aiLane,
-        quickSuggestion: localOnlySuggestion,
-        shouldUseAi: aiLane !== 'local_only',
-    };
-};
-exports.buildFilingPlanV3 = buildFilingPlanV3;
 const buildCapturePreview = (result, rawCapture) => ({
     rawCapture,
     title: result.suggestedTitle,
@@ -1694,19 +1446,6 @@ const buildCapturePreview = (result, rawCapture) => ({
     corrections: result.corrections ?? [],
 });
 exports.buildCapturePreview = buildCapturePreview;
-const mergeFilingCoreWithLocalDetails = (suggestion, localDetails, draft) => ({
-    ...suggestion,
-    suggestedTitle: draft.title.trim(),
-    suggestedContent: '',
-    suggestedTags: localDetails.suggestedTags,
-    suggestedStatus: localDetails.suggestedStatus,
-    suggestedRelatedAddresses: localDetails.suggestedRelatedAddresses,
-    suggestedSource: (0, antinet_1.normalizeCardSource)(draft.source),
-    corrections: [],
-    confidenceBand: (0, exports.deriveConfidenceBand)(suggestion.confidence ?? 0),
-    alternativeSuggestions: [],
-});
-exports.mergeFilingCoreWithLocalDetails = mergeFilingCoreWithLocalDetails;
 function findParentTopLevelRange(range, selectedRanges) {
     return selectedRanges.find(candidate => topLevelRangeContains(candidate.range, (0, antinet_1.normalizeAddress)(range)));
 }

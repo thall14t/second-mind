@@ -344,6 +344,126 @@ function run() {
     'V2 should still prefer a creative or authored-work branch under a customized taxonomy.'
   );
 
+  const filingWhy = aiFiling.buildFilingWhyContext(
+    {
+      mode: 'new_category',
+      selectedMasterRange: '0300-0399',
+      selectedMasterRangeTitle: 'Ethics',
+      suggestedCategoryId: '',
+      suggestedCategoryRange: '',
+      suggestedCategoryTitle: '',
+      suggestedParentRange: '0300-0399',
+      suggestedParentTitle: 'Ethics',
+      suggestedNewCategoryRange: '',
+      suggestedNewCategoryTitle: 'Our lord is love',
+      suggestedCardAddress: '',
+      suggestedTitle: '',
+      suggestedContent: '',
+      suggestedTags: [],
+      suggestedStatus: 'Seed',
+      suggestedRelatedAddresses: [],
+      reasoning: 'AI filing draft',
+      confidence: 0.68,
+    },
+    'Second Mind could not verify a reusable new category name, so please review the local options.'
+  );
+  assert.match(filingWhy.considered, /Our lord is love/i);
+  assert.match(filingWhy.considered, /Ethics/i);
+  assert.match(filingWhy.notApplied, /reusable new category name/i);
+
+  const manualReviewWithWhy = aiFiling.buildManualReviewFallbackSuggestion({
+    draft: buildDraft('Our lord is love'),
+    baseSuggestion: {
+      mode: 'new_category',
+      selectedMasterRange: '0300-0399',
+      selectedMasterRangeTitle: 'Ethics',
+      suggestedCategoryId: '',
+      suggestedCategoryRange: '',
+      suggestedCategoryTitle: '',
+      suggestedParentRange: '0300-0399',
+      suggestedParentTitle: 'Ethics',
+      suggestedNewCategoryRange: '',
+      suggestedNewCategoryTitle: 'Our lord is love',
+      suggestedCardAddress: '',
+      suggestedTitle: '',
+      suggestedContent: '',
+      suggestedTags: [],
+      suggestedStatus: 'Seed',
+      suggestedRelatedAddresses: [],
+      reasoning: 'AI filing draft',
+      confidence: 0.68,
+    },
+    reasoning: 'Second Mind could not verify a reusable new category name, so please review the local options.',
+  });
+  assert.strictEqual(manualReviewWithWhy.mode, 'manual_review');
+  assert.ok(manualReviewWithWhy.filingWhy);
+  assert.match(manualReviewWithWhy.filingWhy.considered, /Our lord is love/i);
+
+  const aiManualReviewWithAlternatives = aiFiling.finalizeFilingSuggestion({
+    suggestion: {
+      mode: 'manual_review',
+      selectedMasterRange: '0300-0399',
+      selectedMasterRangeTitle: 'Ethics',
+      suggestedCategoryId: '',
+      suggestedCategoryRange: '',
+      suggestedCategoryTitle: '',
+      suggestedParentRange: '',
+      suggestedParentTitle: '',
+      suggestedNewCategoryRange: '',
+      suggestedNewCategoryTitle: '',
+      suggestedCardAddress: '',
+      suggestedTitle: '',
+      suggestedContent: '',
+      suggestedTags: [],
+      suggestedStatus: 'Seed',
+      suggestedRelatedAddresses: [],
+      reasoning: 'The note could fit several nearby shelves, so please choose the best fit.',
+      confidence: 0.44,
+      alternativeSuggestions: [
+        {
+          mode: 'existing_category',
+          selectedMasterRange: '0300-0399',
+          selectedMasterRangeTitle: 'Ethics',
+          suggestedCategoryId: 'ethics-love',
+          suggestedCategoryRange: '0305',
+          suggestedCategoryTitle: 'Love',
+          suggestedParentRange: '',
+          suggestedParentTitle: '',
+          suggestedNewCategoryRange: '',
+          suggestedNewCategoryTitle: '',
+          suggestedCardAddress: '0305a',
+          suggestedTitle: '',
+          suggestedContent: '',
+          suggestedTags: [],
+          suggestedStatus: 'Seed',
+          suggestedRelatedAddresses: [],
+          reasoning: 'Closest existing shelf for this note.',
+          confidence: 0.62,
+        },
+      ],
+    },
+    draft: buildDraft('Our lord is love'),
+    filingPlan: creativePlanV2,
+    allCategories,
+    cards,
+    editingCardId: null,
+  });
+  assert.strictEqual(aiManualReviewWithAlternatives.mode, 'manual_review');
+  assert.ok(
+    aiManualReviewWithAlternatives.filingWhy,
+    'Manual review suggestions with alternatives should still expose filingWhy for the Why? button.'
+  );
+  assert.match(
+    aiManualReviewWithAlternatives.filingWhy.considered,
+    /Love|several nearby shelves/i,
+    'filingWhy.considered should summarize the leading alternative or the review reasoning.'
+  );
+  assert.match(aiManualReviewWithAlternatives.filingWhy.notApplied, /several nearby shelves/i);
+  assert.ok(
+    (aiManualReviewWithAlternatives.alternativeSuggestions || []).length > 0,
+    'AI-provided manual review alternatives should survive finalize.'
+  );
+
   assert.strictEqual(payload.topLevelCategories.length, categoryTree.length, 'Payload should always include every top-level range.');
   const selectedMasterRange = creativePlanV2.quickSuggestion.selectedMasterRange;
   const selectedMasterNode = payload.topLevelCategories.find(node => node.range === selectedMasterRange);

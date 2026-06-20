@@ -15,6 +15,8 @@ function compileModules() {
     : path.join(appRoot, 'node_modules', '.bin', 'tsc');
   const result = spawnSync(tscCommand, [
     path.join(appRoot, 'utils', 'todoGenerationSanitize.ts'),
+    path.join(appRoot, 'utils', 'todoGenerationInvariants.ts'),
+    path.join(appRoot, 'utils', 'todoTaskTitles.ts'),
     path.join(appRoot, 'types.ts'),
     '--module', 'commonjs',
     '--target', 'es2020',
@@ -70,6 +72,26 @@ function runTests() {
   });
   assert.strictEqual(alreadyGood.todos[0].title, 'Finish the garden');
   assert.strictEqual((alreadyGood.corrections ?? []).length, 0);
+
+  const gerundChildren = sanitizeTodoGeneration(capture, {
+    strategy: 'ai',
+    todos: [
+      { clientId: 'parent', title: 'Finish the garden', parentClientId: null, sortOrder: 0 },
+      { clientId: 'child-1', title: 'putting up trim', parentClientId: 'parent', sortOrder: 0 },
+      { clientId: 'child-2', title: 'Trimming posts', parentClientId: 'parent', sortOrder: 1 },
+    ],
+  });
+  assert.strictEqual(gerundChildren.todos[1].title, 'Put up trim');
+  assert.strictEqual(gerundChildren.todos[2].title, 'Trim posts');
+
+  const gerundChildrenJs = sanitizeJs(capture, {
+    strategy: 'ai',
+    todos: [
+      { clientId: 'parent', title: 'Finish the garden', parentClientId: null, sortOrder: 0 },
+      { clientId: 'child-1', title: 'putting up trim', parentClientId: 'parent', sortOrder: 0 },
+    ],
+  });
+  assert.strictEqual(gerundChildrenJs.todos[1].title, 'Put up trim');
 
   console.log('All todo generation sanitize tests passed.');
 }

@@ -1,5 +1,11 @@
+/**
+ * Narrow offline parser — list-shaped captures only.
+ * Bullets, numbered lines, comma lists, and simple "need to X including Y, Z" clauses.
+ * Long prose grouping is AI responsibility; do not expand this file for one-off capture shapes.
+ */
 import { Todo } from '../types';
 import { resolveRelativeDueDate } from './todoDates';
+import { normalizeActionTodoTitle } from './todoTaskTitles';
 
 const BULLET_LINE_PATTERN = /^([-*•]|\d+[.)])\s+(.+)$/;
 const TASK_LIST_FRAMING_PATTERN = /\b(chores?|errands?|to-?do(?:\s+list)?|checklist|shopping\s+list|grocery\s+list|cleaning(?:\s+list)?|house(?:hold)?\s+(?:chores?|tasks?)|weekend\s+tasks?)\b/i;
@@ -19,10 +25,45 @@ const capitalizeTaskTitle = (value: string): string => {
 const splitIncludedTasks = (value: string): string[] => {
   return value
     .split(/\s+and\s+|,\s*/)
-    .map(part => capitalizeTaskTitle(
-      part.replace(/^and\s+/i, '').replace(/[.!?]+$/, '').trim()
-    ))
+    .map(part => normalizeActionTodoTitle(part))
     .filter(Boolean);
+};
+
+const splitStructuredTaskClauses = (content: string): string[] => {
+  const trimmed = content.trim();
+  if (!/\bneed\s+to\b/i.test(trimmed)) {
+    return [trimmed];
+  }
+
+  const clauses = trimmed
+    .split(/(?<=[.!?])\s+(?=(?:i\s+)?need\s+to\s+)/i)
+    .map(clause => clause.trim())
+    .filter(Boolean);
+
+  if (clauses.length <= 1) {
+    return [trimmed];
+  }
+
+  const structuredClauseCount = clauses.filter(
+    clause => TASK_NEED_PATTERN.test(clause) || INCLUDING_TASKS_PATTERN.test(clause)
+  ).length;
+
+  return structuredClauseCount >= 2 ? clauses : [trimmed];
+};
+
+const remapParsedTodoIds = (todos: Todo[], clauseIndex: number): Todo[] => {
+  const base = `${Date.now()}-${clauseIndex}`;
+  const idMap = new Map<string, string>();
+
+  todos.forEach((todo, index) => {
+    idMap.set(todo.id, `${base}-${index}`);
+  });
+
+  return todos.map(todo => ({
+    ...todo,
+    id: idMap.get(todo.id)!,
+    parentId: todo.parentId ? idMap.get(todo.parentId) : undefined,
+  }));
 };
 
 const parseStructuredTaskSentence = (
@@ -106,6 +147,29 @@ export function parseTodosFromCapture(
   const trimmedTitle = title.trim();
   if (!trimmedContent) {
     return [];
+  }
+
+  const structuredClauses = splitStructuredTaskClauses(trimmedContent);
+  if (structuredClauses.length > 1) {
+    const mergedTodos: Todo[] = [];
+    structuredClauses.forEach((clause, clauseIndex) => {
+      const parsedClause = parseStructuredTaskSentence(trimmedTitle, clause, referenceDate);
+      if (!parsedClause) {
+        return;
+      }
+
+      const remapped = remapParsedTodoIds(parsedClause, clauseIndex);
+      const root = remapped.find(todo => !todo.parentId);
+      if (root) {
+        root.sortOrder = mergedTodos.filter(todo => !todo.parentId).length;
+      }
+
+      mergedTodos.push(...remapped);
+    });
+
+    if (mergedTodos.length > 0) {
+      return mergedTodos;
+    }
   }
 
   const structuredSentence = parseStructuredTaskSentence(trimmedTitle, trimmedContent, referenceDate);

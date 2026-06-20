@@ -85,6 +85,7 @@ function runTests() {
         { clientId: 'child', title: 'draft outline', sortOrder: 0, parentId: 'parent' },
       ],
       confidence: 'low',
+      scope: 'list_shapes_only',
       note: 'test hints',
     },
     context: {
@@ -94,6 +95,13 @@ function runTests() {
   assert.deepStrictEqual(generateContext.context.existingCardAddresses, ['0102a', 'bad']);
   assert.strictEqual(generateContext.heuristicHints.confidence, 'low');
   assert.match(generateContext.outputRules.heuristicHints, /blindly/i);
+  assert.match(generateContext.outputRules.multiProject, /one root parent per project/i);
+  assert.match(generateContext.outputRules.actionTitles, /imperative/i);
+  assert.match(generateContext.outputRules.examples, /invariants/i);
+  assert.ok(generateContext.examples.length >= 3, 'Todo generation should include multi-project examples.');
+  assert.match(generateContext.invariants.parentNoIncluding, /including/i);
+  assert.match(generateContext.invariants.childImperative, /imperative/i);
+  assert.strictEqual(generateContext.heuristicHints.scope, 'list_shapes_only');
   assert.ok(Array.isArray(generateContext.examples));
 
   const appendContext = prepareGenerateTodosContext({

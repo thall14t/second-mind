@@ -149,39 +149,7 @@ export const buildTodoTree = (todos: Todo[]): TodoTreeNode[] => {
   return buildNodes(undefined, 0);
 };
 
-export const moveTodoAmongSiblings = (
-  todos: Todo[],
-  todoId: string,
-  direction: 'up' | 'down'
-): Todo[] => {
-  const todo = todos.find(item => item.id === todoId);
-  if (!todo) {
-    return todos;
-  }
 
-  const siblings = getTodoSiblings(todos, todo);
-  const currentIndex = siblings.findIndex(item => item.id === todoId);
-  const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
-  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblings.length) {
-    return todos;
-  }
-
-  const current = siblings[currentIndex];
-  const target = siblings[targetIndex];
-
-  return todos.map(item => {
-    if (item.id === current.id) {
-      return { ...item, sortOrder: target.sortOrder };
-    }
-
-    if (item.id === target.id) {
-      return { ...item, sortOrder: current.sortOrder };
-    }
-
-    return item;
-  });
-};
 
 export const countDirectChildren = (
   todos: Todo[],
@@ -467,14 +435,3 @@ export const insertSiblingTodo = (
   };
 };
 
-export const canMoveTodo = (todos: Todo[], todoId: string, direction: 'up' | 'down'): boolean => {
-  const todo = todos.find(item => item.id === todoId);
-  if (!todo) {
-    return false;
-  }
-
-  const siblings = getTodoSiblings(todos, todo);
-  const currentIndex = siblings.findIndex(item => item.id === todoId);
-  const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-  return currentIndex >= 0 && targetIndex >= 0 && targetIndex < siblings.length;
-};

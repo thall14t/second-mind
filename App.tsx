@@ -24,6 +24,7 @@ import SettingsScreen from './components/SettingsScreen';
 import ThinkingScreen from './components/ThinkingScreen';
 import CaptureClarificationModal from './components/CaptureClarificationModal';
 import ErrorBoundary from './components/ErrorBoundary';
+import Toast from './components/Toast';
 import { useAiFiling } from './hooks/useAiFiling';
 import { useCaptureStructuring } from './hooks/useCaptureStructuring';
 import { useCaptureJobs } from './hooks/useCaptureJobs';
@@ -183,6 +184,7 @@ export default function App() {
   const [selectedCardListRange, setSelectedCardListRange] = useState<ManagedCategory | null>(null);
   const [captureTitle, setCaptureTitle] = useState('');
   const [captureContent, setCaptureContent] = useState('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [filingInboxCaptureId, setFilingInboxCaptureId] = useState<string | null>(null);
   const pendingInboxAutoFilingRef = useRef(false);
   const inboxAutoFilingAppliedRef = useRef<string | null>(null);
@@ -836,6 +838,9 @@ export default function App() {
     getCategoryTree: () => categoryTree,
     getCards: () => useDataStore.getState().cards,
     getAiAssistEndpoint,
+    onCaptureSaved: (route) => setToastMessage(
+      route === 'card' ? 'Saved to your library' : 'Added to your todos'
+    ),
   });
 
   const {
@@ -2539,6 +2544,11 @@ export default function App() {
           onChooseTodo={() => { void handleChooseClarificationRoute('todo'); }}
           onSubmitAnswer={(answer) => { void handleSubmitClarificationAnswer(answer); }}
           onDecideLater={handleDismissClarification}
+        />
+        <Toast
+          message={toastMessage}
+          darkMode={settings.darkMode}
+          onDismiss={() => setToastMessage(null)}
         />
       </View>
     </NavigationContainer>

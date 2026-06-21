@@ -82,6 +82,7 @@ interface UseCaptureRoutingParams {
   getCategoryTree: () => ManagedCategory[];
   getCards: () => Card[];
   getAiAssistEndpoint: () => string;
+  onCaptureSaved?: (route: 'card' | 'todo') => void;
 }
 
 export const useCaptureRouting = ({
@@ -96,6 +97,7 @@ export const useCaptureRouting = ({
   getCategoryTree,
   getCards,
   getAiAssistEndpoint,
+  onCaptureSaved,
 }: UseCaptureRoutingParams) => {
   const classifyCacheRef = useRef(new Map<string, CaptureClassificationResult>());
   const classifyInFlightRef = useRef(new Map<string, Promise<CaptureClassificationResult>>());
@@ -460,9 +462,11 @@ export const useCaptureRouting = ({
     ));
     await saveInboxCaptures(updatedCaptures);
     await captureJobsApi.recordEnrichment(jobId, enrichment);
+    onCaptureSaved?.('card');
   }, [
     captureJobsApi,
     getInboxCaptures,
+    onCaptureSaved,
     requestCaptureEnrichment,
     requestCaptureFiling,
     saveInboxCaptures,
@@ -499,10 +503,12 @@ export const useCaptureRouting = ({
     await saveTodos(ensureTodoSortOrders(mergedTodos));
     await saveInboxCaptures(getInboxCaptures().filter(item => item.id !== capture.id));
     await captureJobsApi.recordTodoGeneration(jobId, generation);
+    onCaptureSaved?.('todo');
   }, [
     captureJobsApi,
     getInboxCaptures,
     getTodos,
+    onCaptureSaved,
     requestTodoGeneration,
     saveInboxCaptures,
     saveTodos,
@@ -594,6 +600,7 @@ export const useCaptureRouting = ({
           );
           await saveInboxCaptures(updatedCaptures);
           await captureJobsApi.recordEnrichment(jobId, enrichment);
+          onCaptureSaved?.('card');
           return;
         }
 
@@ -615,6 +622,7 @@ export const useCaptureRouting = ({
           await saveTodos(ensureTodoSortOrders(mergedTodos));
           await saveInboxCaptures(getInboxCaptures().filter(item => item.id !== capture.id));
           await captureJobsApi.recordTodoGeneration(jobId, generation);
+          onCaptureSaved?.('todo');
           return;
         }
 

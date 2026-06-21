@@ -809,6 +809,43 @@ export function getCaptureJobStatusLabel(status: CaptureJobStatus): string {
   }
 }
 
+export function getCaptureJobStageLabel(status: CaptureJobStatus): string {
+  switch (status) {
+    case 'pending':
+      return 'Getting ready';
+    case 'classifying':
+      return 'Reading your capture';
+    case 'enriching':
+      return 'Preparing your card';
+    case 'generating_todos':
+      return 'Building your task list';
+    case 'awaiting_clarification':
+      return 'Waiting for your input';
+    case 'completed':
+      return 'Done';
+    case 'failed':
+      return 'Something went wrong';
+    default:
+      return 'Processing';
+  }
+}
+
+export type CaptureJobPipelineStep = 'classify' | 'route' | 'complete';
+
+export function getCaptureJobPipelineStep(status: CaptureJobStatus): CaptureJobPipelineStep {
+  switch (status) {
+    case 'pending':
+    case 'classifying':
+      return 'classify';
+    case 'enriching':
+    case 'generating_todos':
+    case 'awaiting_clarification':
+      return 'route';
+    default:
+      return 'complete';
+  }
+}
+
 export function buildCaptureJobPreview(capture?: InboxCapture): { previewTitle: string; previewContent: string } {
   if (!capture) {
     return {
@@ -898,9 +935,13 @@ export function buildCaptureClarificationLabel(count: number): string {
     : `${count} captures need your input`;
 }
 
-export function buildCaptureProcessingLabel(count: number): string {
+export function buildCaptureProcessingLabel(count: number, singleJobStatus?: CaptureJobStatus): string {
   if (count <= 0) {
     return '';
+  }
+
+  if (count === 1 && singleJobStatus) {
+    return getCaptureJobStageLabel(singleJobStatus);
   }
 
   return count === 1

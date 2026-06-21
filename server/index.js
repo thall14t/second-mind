@@ -26,11 +26,14 @@ const captureEnrichmentCache = new Map();
 const captureEnrichmentInFlight = new Map();
 const todoGenerationCache = new Map();
 const todoGenerationInFlight = new Map();
+const routeAndEnrichCache = new Map();
+const routeAndEnrichInFlight = new Map();
 
 const {
   requestClassifyCapture,
   requestEnrichCardCapture,
   requestGenerateTodos,
+  requestRouteAndEnrich,
 } = require('./captureRouting');
 
 function loadEnvFile(envPath) {
@@ -240,6 +243,17 @@ const server = http.createServer(async (req, res) => {
         todoGenerationInFlight,
         buildAiCacheKey(body),
         () => requestGenerateTodos(body, buildCaptureRoutingDeps())
+      );
+      sendJson(res, 200, { result });
+      return;
+    }
+
+    if (route === '/api/route-and-enrich') {
+      const result = await withCachedAiResponse(
+        routeAndEnrichCache,
+        routeAndEnrichInFlight,
+        buildAiCacheKey(body),
+        () => requestRouteAndEnrich(body, buildCaptureRoutingDeps())
       );
       sendJson(res, 200, { result });
       return;

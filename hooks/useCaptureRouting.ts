@@ -7,6 +7,7 @@ import {
   CardFilingSuggestion,
   InboxCapture,
   ManagedCategory,
+  RouteAndEnrichResult,
   Todo,
   TodoGenerationResult,
 } from '../types';
@@ -51,6 +52,7 @@ const CLASSIFY_CAPTURE_TIMEOUT_MS = 12_000;
 const ENRICH_CAPTURE_TIMEOUT_MS = 18_000;
 const GENERATE_TODOS_TIMEOUT_MS = 18_000;
 const FILING_SUGGESTION_TIMEOUT_MS = 20_000;
+const ROUTE_AND_ENRICH_TIMEOUT_MS = 24_000;
 
 const rememberCachedAiValue = <T,>(cache: Map<string, T>, key: string, value: T) => {
   if (cache.has(key)) {
@@ -103,6 +105,8 @@ export const useCaptureRouting = ({
   const generateInFlightRef = useRef(new Map<string, Promise<TodoGenerationResult>>());
   const filingCacheRef = useRef(new Map<string, CardFilingSuggestion>());
   const filingInFlightRef = useRef(new Map<string, Promise<CardFilingSuggestion>>());
+  const routeAndEnrichCacheRef = useRef(new Map<string, RouteAndEnrichResult>());
+  const routeAndEnrichInFlightRef = useRef(new Map<string, Promise<RouteAndEnrichResult>>());
 
   const getClassifyEndpoint = useCallback(
     () => `${getAiBaseEndpoint().replace(/\/+$/, '')}/api/classify-capture`,
@@ -122,6 +126,11 @@ export const useCaptureRouting = ({
   const getFilingEndpoint = useCallback(
     () => `${getAiAssistEndpoint().replace(/\/+$/, '')}/api/suggest-card-filing`,
     [getAiAssistEndpoint]
+  );
+
+  const getRouteAndEnrichEndpoint = useCallback(
+    () => `${getAiBaseEndpoint().replace(/\/+$/, '')}/api/route-and-enrich`,
+    [getAiBaseEndpoint]
   );
 
   const requestCaptureClassification = useCallback(async (
@@ -311,6 +320,66 @@ export const useCaptureRouting = ({
     }
   }, [getCardAddresses, getGenerateTodosEndpoint, getTodos]);
 
+  const requestRouteAndEnrich = useCallback(async (
+    capture: InboxCapture
+  ): Promise<RouteAndEnrichResult> => {
+    const localSignals = buildClassificationLocalSignals(capture.title, capture.content);
+    const payload = {
+      capture: {
+        id: capture.id,
+        title: capture.title,
+        content: capture.content,
+        sourceText: capture.sourceText,
+        createdAt: capture.createdAt,
+      },
+      hints: { localSignals },
+      heuristicHints: buildHeuristicTodoHints(capture.title, capture.content),
+      context: {
+        existingCards: buildExistingCardSummariesForEnrichment(getCards()),
+        existingCardAddresses: getCardAddresses().slice(0, 50),
+        existingTodos: buildExistingTodoSummariesForGeneration(getTodos()),
+      },
+    };
+    const endpoint = getRouteAndEnrichEndpoint();
+    const cacheKey = buildAiRequestCacheKey(endpoint, payload);
+    const cached = routeAndEnrichCacheRef.current.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    let requestPromise = routeAndEnrichInFlightRef.current.get(cacheKey);
+    if (!requestPromise) {
+      requestPromise = (async () => {
+        const { response, data } = await fetchJsonWithTimeout<{ result?: RouteAndEnrichResult; error?: string }>(
+          endpoint,
+          payload,
+          ROUTE_AND_ENRICH_TIMEOUT_MS
+        );
+
+        if (!response.ok || !data.result) {
+          throw new Error(data.error || 'Route-and-enrich failed.');
+        }
+
+        const result = data.result;
+        if (result.enrichment) {
+          result.enrichment = restrainStructuringToCapture(capture, {
+            ...result.enrichment,
+            strategy: result.enrichment.strategy ?? 'ai',
+          });
+        }
+        return result;
+      })().finally(() => {
+        routeAndEnrichInFlightRef.current.delete(cacheKey);
+      });
+
+      routeAndEnrichInFlightRef.current.set(cacheKey, requestPromise);
+    }
+
+    const result = await requestPromise;
+    rememberCachedAiValue(routeAndEnrichCacheRef.current, cacheKey, result);
+    return result;
+  }, [getCards, getCardAddresses, getTodos, getRouteAndEnrichEndpoint]);
+
   const requestCaptureFiling = useCallback(async (
     enrichment: CaptureStructuringResult
   ): Promise<CardFilingSuggestion | null> => {
@@ -453,6 +522,7 @@ export const useCaptureRouting = ({
       const existingJob = captureJobsApi.getJobById(jobId);
       let classification: CaptureClassificationResult | undefined = existingJob?.classification;
 
+      // Clarification resume: user answered a todo clarification question — use separate flow
       if (resumeFromTodoGeneration) {
         if (!classification && userRouteOverride) {
           classification = buildUserOverrideClassification(userRouteOverride);
@@ -467,29 +537,104 @@ export const useCaptureRouting = ({
         return;
       }
 
+      // User explicitly chose a route — skip combined call, use existing separate flow
       if (userRouteOverride === 'card' || userRouteOverride === 'todo') {
         classification = buildUserOverrideClassification(userRouteOverride);
         await captureJobsApi.recordClassification(jobId, classification);
-      } else if (!classification) {
-        await captureJobsApi.setJobStatus(jobId, 'classifying');
-        classification = await requestCaptureClassification(capture, null);
-        const updatedJob = await captureJobsApi.recordClassification(jobId, classification);
-        if (!updatedJob) {
-          return;
+        const route = userRouteOverride;
+        if (route === 'card') {
+          await completeCardRoute(jobId, capture);
+        } else {
+          await completeTodoRoute(jobId, capture);
         }
-
-        if (classification.needsClarification) {
-          return;
-        }
-      }
-
-      const route = userRouteOverride ?? classification?.route;
-      if (route === 'card') {
-        await completeCardRoute(jobId, capture);
         return;
       }
 
-      await completeTodoRoute(jobId, capture);
+      // Primary path: combined route-and-enrich call
+      if (!classification) {
+        await captureJobsApi.setJobStatus(jobId, 'classifying');
+
+        let combined: RouteAndEnrichResult;
+        try {
+          combined = await requestRouteAndEnrich(capture);
+        } catch {
+          // Combined call failed — fall back to two-step flow
+          classification = await requestCaptureClassification(capture, null);
+          const updatedJob = await captureJobsApi.recordClassification(jobId, classification);
+          if (!updatedJob) return;
+          if (classification.needsClarification) return;
+          const route = classification.route;
+          if (route === 'card') {
+            await completeCardRoute(jobId, capture);
+          } else {
+            await completeTodoRoute(jobId, capture);
+          }
+          return;
+        }
+
+        classification = combined.classification;
+        const updatedJob = await captureJobsApi.recordClassification(jobId, classification);
+        if (!updatedJob) return;
+        if (classification.needsClarification) return;
+
+        // Use the already-enriched content from the combined result
+        if (combined.classification.route === 'card' && combined.enrichment) {
+          const enrichment = combined.enrichment;
+          const filingSuggestion = await requestCaptureFiling(enrichment);
+          const latestCaptures = getInboxCaptures();
+          const captureStillExists = latestCaptures.some(item => item.id === capture.id);
+          if (!captureStillExists) {
+            await captureJobsApi.markJobFailed(jobId, 'Capture was removed before enrichment finished.');
+            return;
+          }
+          const updatedCaptures = latestCaptures.map(item =>
+            item.id === capture.id
+              ? applyEnrichmentToCapture(item, enrichment, jobId, filingSuggestion)
+              : item
+          );
+          await saveInboxCaptures(updatedCaptures);
+          await captureJobsApi.recordEnrichment(jobId, enrichment);
+          return;
+        }
+
+        if (combined.classification.route === 'todo' && combined.todoGeneration) {
+          const generation = combined.todoGeneration;
+          const clarificationRound = 0;
+          const clarificationState = buildTodoClarificationState(generation, clarificationRound + 1);
+          if (clarificationState && clarificationRound + 1 < MAX_CAPTURE_CLARIFICATION_ROUNDS) {
+            await captureJobsApi.recordClarificationRequest(jobId, clarificationState, generation);
+            return;
+          }
+          const existingTodos = getTodos();
+          const mergedTodos = mergeTodoGenerationIntoExisting(generation, existingTodos, capture);
+          const newTodoCount = mergedTodos.length - existingTodos.length;
+          if (newTodoCount === 0) {
+            await captureJobsApi.markJobFailed(jobId, 'No todos could be generated from this capture.');
+            return;
+          }
+          await saveTodos(ensureTodoSortOrders(mergedTodos));
+          await saveInboxCaptures(getInboxCaptures().filter(item => item.id !== capture.id));
+          await captureJobsApi.recordTodoGeneration(jobId, generation);
+          return;
+        }
+
+        // Combined result had no enrichment/todos — fall back to separate step
+        const route = classification.route;
+        if (route === 'card') {
+          await completeCardRoute(jobId, capture);
+        } else {
+          await completeTodoRoute(jobId, capture);
+        }
+        return;
+      }
+
+      // Classification already exists on job (resumed after clarification) — use separate flow
+      const route = classification.route;
+      if (route === 'card') {
+        await completeCardRoute(jobId, capture);
+      } else {
+        await completeTodoRoute(jobId, capture);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Capture routing failed.';
       await captureJobsApi.markJobFailed(jobId, message);
@@ -499,6 +644,12 @@ export const useCaptureRouting = ({
     completeCardRoute,
     completeTodoRoute,
     requestCaptureClassification,
+    requestRouteAndEnrich,
+    requestCaptureFiling,
+    getInboxCaptures,
+    saveInboxCaptures,
+    getTodos,
+    saveTodos,
   ]);
 
   const submitQuickCapture = useCallback(async (capture: InboxCapture) => {

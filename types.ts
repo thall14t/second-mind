@@ -367,6 +367,12 @@ export interface ExistingCardSummary {
   tags?: string[];
 }
 
+export interface RouteAndEnrichResult {
+  classification: CaptureClassificationResult;
+  enrichment?: CaptureStructuringResult;
+  todoGeneration?: TodoGenerationResult;
+}
+
 export interface CaptureStructuringPayload {
   capture: {
     title: string;

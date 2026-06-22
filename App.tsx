@@ -27,6 +27,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import Toast from './components/Toast';
 import { useAiFiling } from './hooks/useAiFiling';
 import { useAskCards } from './hooks/useAskCards';
+import { useTodos } from './hooks/useTodos';
 import { useCaptureStructuring } from './hooks/useCaptureStructuring';
 import { useCaptureJobs } from './hooks/useCaptureJobs';
 import { useCaptureRouting } from './hooks/useCaptureRouting';
@@ -204,6 +205,7 @@ export default function App() {
   const isTodoListZoomedRef = useRef(false);
   const todoListZoomOutRef = useRef<(() => void) | null>(null);
   isTodoListZoomedRef.current = isTodoListZoomed;
+  const todoActions = useTodos();
   const theme = getTheme(settings.darkMode);
 
   const categoryTree = useMemo(
@@ -1501,118 +1503,6 @@ export default function App() {
     }
   };
 
-  const toggleTodo = async (todoId: string) => {
-    const updatedTodos = toggleTodoCompletion(todos, todoId);
-    await saveTodos(updatedTodos);
-  };
-
-  const deleteTodo = async (todoId: string) => {
-    const idsToDelete = collectDescendantIds(todos, todoId);
-    const updatedTodos = todos.filter(todo => !idsToDelete.has(todo.id));
-    await saveTodos(updatedTodos);
-
-    const prunedCollapsedIds = (settings.collapsedTodoIds ?? []).filter(id => !idsToDelete.has(id));
-    if (prunedCollapsedIds.length !== (settings.collapsedTodoIds ?? []).length) {
-      await saveSettings({ ...settings, collapsedTodoIds: prunedCollapsedIds });
-    }
-  };
-
-  const addSubTodo = async (parentId: string, title = ''): Promise<string> => {
-    const newSubTodo: Todo = {
-      id: `${Date.now()}-sub`,
-      title,
-      completed: false,
-      parentId,
-      sortOrder: getNextSortOrder(todos, parentId),
-      createdAt: new Date().toISOString(),
-    };
-    await saveTodos([newSubTodo, ...todos]);
-    return newSubTodo.id;
-  };
-
-  const addSiblingTodo = async (afterTodoId: string, title = ''): Promise<string | null> => {
-    const inserted = insertSiblingTodo(todos, afterTodoId, { title });
-    if (!inserted) {
-      return null;
-    }
-
-    await saveTodos(inserted.todos);
-    return inserted.newTodoId;
-  };
-
-  const updateTodo = async (
-    todoId: string,
-    updates: {
-      title: string;
-      content?: string;
-      relatedAddressesText?: string;
-      dueDate?: string;
-    },
-    options?: { quiet?: boolean }
-  ): Promise<boolean> => {
-    const trimmedTitle = updates.title.trim();
-    if (!trimmedTitle) {
-      if (!options?.quiet) {
-        Alert.alert('Title Required', 'Give this task a title before saving.');
-      }
-      return false;
-    }
-
-    const normalizedDueDate = updates.dueDate === undefined
-      ? undefined
-      : normalizeTodoDueDateInput(updates.dueDate);
-
-    if (updates.dueDate?.trim() && !normalizedDueDate) {
-      if (!options?.quiet) {
-        Alert.alert('Invalid Due Date', 'Use YYYY-MM-DD or a recognizable date.');
-      }
-      return false;
-    }
-
-    const relatedAddresses = parseCommaSeparatedValues(updates.relatedAddressesText ?? '').map(normalizeAddress);
-
-    const updatedTodos = todos.map(todo =>
-      todo.id === todoId
-        ? {
-            ...todo,
-            title: trimmedTitle,
-            content: updates.content?.trim() ? updates.content.trim() : undefined,
-            relatedAddresses: relatedAddresses.length ? relatedAddresses : undefined,
-            dueDate: normalizedDueDate,
-          }
-        : todo
-    );
-    await saveTodos(updatedTodos);
-    return true;
-  };
-
-  const saveCollapsedTodoIds = async (collapsedTodoIds: string[]) => {
-    const validIds = new Set(todos.map(todo => todo.id));
-    const pruned = collapsedTodoIds.filter(id => validIds.has(id));
-    await saveSettings({ ...settings, collapsedTodoIds: pruned });
-  };
-
-  const reorderTodos = async (flat: FlatTodoItem[], from: number, to: number) => {
-    const updatedTodos = reorderTodosFromDrag(todos, flat, from, to);
-    await saveTodos(updatedTodos);
-  };
-
-  const indentTodoItem = async (todoId: string) => {
-    const updatedTodos = indentTodo(todos, todoId);
-    if (updatedTodos === todos) {
-      return;
-    }
-    await saveTodos(updatedTodos);
-  };
-
-  const outdentTodoItem = async (todoId: string) => {
-    const updatedTodos = outdentTodo(todos, todoId);
-    if (updatedTodos === todos) {
-      return;
-    }
-    await saveTodos(updatedTodos);
-  };
-
   const openLinkedCard = (address: string) => {
     const normalizedAddress = normalizeAddress(address);
     const card = cards.find(item => normalizeAddress(item.address) === normalizedAddress);
@@ -2225,20 +2115,18 @@ export default function App() {
       darkMode={settings.darkMode}
       todos={todos}
       collapsedTodoIds={settings.collapsedTodoIds ?? []}
-      onToggleTodo={toggleTodo}
-      onDeleteTodo={deleteTodo}
-      onAddSubTodo={addSubTodo}
-      onAddSiblingTodo={addSiblingTodo}
-      onUpdateTodo={updateTodo}
-      onCollapsedTodoIdsChange={saveCollapsedTodoIds}
-      onReorderTodos={reorderTodos}
-      onIndentTodo={indentTodoItem}
-      onOutdentTodo={outdentTodoItem}
+      onToggleTodo={todoActions.toggle}
+      onDeleteTodo={todoActions.remove}
+      onAddSubTodo={todoActions.addSub}
+      onAddSiblingTodo={todoActions.addSibling}
+      onUpdateTodo={todoActions.update}
+      onCollapsedTodoIdsChange={todoActions.saveCollapsedIds}
+      onReorderTodos={todoActions.reorder}
+      onIndentTodo={todoActions.indent}
+      onOutdentTodo={todoActions.outdent}
       onOpenLinkedCard={openLinkedCard}
       onZoomChange={setIsTodoListZoomed}
-      onRegisterZoomOut={handler => {
-        todoListZoomOutRef.current = handler;
-      }}
+      onRegisterZoomOut={handler => { todoListZoomOutRef.current = handler; }}
       onBack={() => {
         setIsTodoListZoomed(false);
         setCurrentScreen('home');

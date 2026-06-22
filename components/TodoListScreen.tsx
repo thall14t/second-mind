@@ -724,7 +724,7 @@ export default function TodoListScreen({
         >
           <Text style={[styles.todoHeaderBackText, { color: theme.accent }]}>{'\u2190'}</Text>
         </TouchableOpacity>
-        <Text style={[styles.formTitle, { color: theme.text, flex: 1, marginBottom: 0 }]} numberOfLines={1}>
+        <Text style={[styles.formTitle, { color: theme.text, flex: 1, marginBottom: 0, textAlign: 'center' }]} numberOfLines={1}>
           {zoomedTodoId ? zoomBreadcrumb[zoomBreadcrumb.length - 1]?.title || 'Focused list' : 'Todos'}
         </Text>
       </View>

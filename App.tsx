@@ -26,6 +26,7 @@ import CaptureClarificationModal from './components/CaptureClarificationModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import Toast from './components/Toast';
 import { useAiFiling } from './hooks/useAiFiling';
+import { useAskCards } from './hooks/useAskCards';
 import { useCaptureStructuring } from './hooks/useCaptureStructuring';
 import { useCaptureJobs } from './hooks/useCaptureJobs';
 import { useCaptureRouting } from './hooks/useCaptureRouting';
@@ -33,8 +34,7 @@ import { styles } from './styles';
 import {
   AiAssistPayload,
   AppSettings,
-  AskCardsPayload,
-  AskCardsResult,
+
   Card,
   CardSortMode,
   CardFilingSuggestion,
@@ -128,15 +128,13 @@ import {
 } from './utils/persistence';
 import { useDataStore } from './utils/stores/dataStore';
 
+import {
+  CAPTURE_STRUCTURING_TIMEOUT_MS,
+  DEFAULT_AI_ASSIST_ENDPOINT,
+  FILING_SUGGESTION_TIMEOUT_MS,
+} from './constants';
+
 const SCREEN_WIDTH = Dimensions.get('window').width;
-// For local dev: 'http://localhost:3001' or your LAN IP
-// For Render deployment (recommended for trialing): use your Render URL e.g. https://second-mind-ai.onrender.com
-// Default for local development. 
-// For Render trialing: replace with your deployed URL (e.g. https://second-mind-ai.onrender.com)
-// Users set this in Settings > Developer Settings
-const DEFAULT_AI_ASSIST_ENDPOINT = 'http://localhost:3001';
-const FILING_SUGGESTION_TIMEOUT_MS = 20_000;
-const CAPTURE_STRUCTURING_TIMEOUT_MS = 18_000;
 
 type SwipeUnderlayDescriptor =
   | { type: 'none' }
@@ -191,9 +189,7 @@ export default function App() {
   const [clarificationModalJobId, setClarificationModalJobId] = useState<string | null>(null);
   const [dismissedClarificationJobIds, setDismissedClarificationJobIds] = useState<string[]>([]);
   const [resolvingClarificationJobIds, setResolvingClarificationJobIds] = useState<string[]>([]);
-  const [askCardsQuestion, setAskCardsQuestion] = useState('');
-  const [askCardsResult, setAskCardsResult] = useState<AskCardsResult | null>(null);
-  const [isAskingCards, setIsAskingCards] = useState(false);
+  const askCards = useAskCards();
   const [thinkingState, setThinkingState] = useState<ThinkingState | null>(null);
   const [thinkingReturnScreen, setThinkingReturnScreen] = useState<Screen>('inbox');
 
@@ -742,11 +738,6 @@ export default function App() {
     return `${endpoint.replace(/\/+$/, '')}/api/suggest-card-filing`;
   }, [settings.aiAssistEndpoint]);
 
-  const getAskCardsEndpoint = () => {
-    const endpoint = settings.aiAssistEndpoint?.trim() || DEFAULT_AI_ASSIST_ENDPOINT;
-    return `${endpoint.replace(/\/+$/, '')}/api/ask-cards`;
-  };
-
   const getAiBaseEndpoint = useCallback(() => (
     settings.aiAssistEndpoint?.trim() || DEFAULT_AI_ASSIST_ENDPOINT
   ), [settings.aiAssistEndpoint]);
@@ -853,23 +844,6 @@ export default function App() {
     getAiAssistEndpoint,
     captureTimeoutMs: CAPTURE_STRUCTURING_TIMEOUT_MS,
     filingFallbackTimeoutMs: FILING_SUGGESTION_TIMEOUT_MS,
-  });
-
-  const buildAskCardsPayload = (): AskCardsPayload => ({
-    question: askCardsQuestion.trim(),
-    cards: cards.map(card => ({
-      address: card.address,
-      title: card.title,
-      content: card.content.slice(0, 1200),
-      status: card.status,
-      tags: card.tags,
-      relatedAddresses: card.relatedAddresses,
-      source: card.source,
-    })),
-    categories: allCategories.map(category => ({
-      range: category.range,
-      title: category.title,
-    })),
   });
 
   const findCategoryByRange = (range: string) => {
@@ -1123,48 +1097,6 @@ export default function App() {
 
     resetCategoryForm();
     setCurrentScreen('categoryPicker');
-  };
-
-  const askMyCards = async () => {
-    if (!askCardsQuestion.trim()) {
-      Alert.alert('Ask A Question First', 'Type a question for your cards before asking Second Mind.');
-      return;
-    }
-
-    if (cards.length === 0) {
-      Alert.alert('No Cards Yet', 'Create or import cards before using Ask My Cards.');
-      return;
-    }
-
-    console.log('[AI] Ask My Cards - question length:', askCardsQuestion.length, 'cards count:', cards.length);
-    setIsAskingCards(true);
-
-    try {
-      const payload = buildAskCardsPayload();
-      console.log('[AI] Sending ask-cards request');
-      const response = await fetch(getAskCardsEndpoint(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json() as { result?: AskCardsResult; error?: string };
-
-      if (!response.ok || !data.result) {
-        throw new Error(data.error || 'The AI assistant did not return an answer.');
-      }
-
-      console.log('[AI] Ask My Cards success, answer length:', data.result.answer?.length);
-      setAskCardsResult(data.result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'The AI assistant could not be reached.';
-      console.error('[AI] Ask My Cards error:', error);
-      Alert.alert(
-        'Ask My Cards Unavailable',
-        `${message}\n\nMake sure the local AI server is running and the Settings URL points to your computer.`
-      );
-    } finally {
-      setIsAskingCards(false);
-    }
   };
 
   const applySuggestedDetails = (suggestion: CardFilingSuggestion | null = aiSuggestion) => {
@@ -2262,12 +2194,12 @@ export default function App() {
   const renderAskCardsScreen = () => (
     <AskCardsScreen
       darkMode={settings.darkMode}
-      question={askCardsQuestion}
-      result={askCardsResult}
-      isAsking={isAskingCards}
+      question={askCards.question}
+      result={askCards.result}
+      isAsking={askCards.isAsking}
       cards={cards}
-      onQuestionChange={setAskCardsQuestion}
-      onAsk={askMyCards}
+      onQuestionChange={askCards.setQuestion}
+      onAsk={askCards.ask}
       onSelectCard={openSelectedCardDetail}
       onBack={() => setCurrentScreen('home')}
     />
@@ -2388,55 +2320,41 @@ export default function App() {
   );
 
   const renderScreenContent = (screen: Screen) => {
+    let content: React.ReactNode;
+
     if (screen === 'cardThread') {
-      return renderCardThreadScreen();
+      content = renderCardThreadScreen();
+    } else if (screen === 'newCard' || screen === 'editCard') {
+      content = renderCardFormScreen(screen);
+    } else if (screen === 'newCategory' || screen === 'editCategory') {
+      content = renderCategoryFormScreen(screen);
+    } else if (screen === 'categoryPicker') {
+      content = renderCategoryPickerScreen();
+    } else if (screen === 'cardList') {
+      content = renderCardListScreen();
+    } else if (screen === 'askCards') {
+      content = renderAskCardsScreen();
+    } else if (screen === 'quickCapture') {
+      content = renderQuickCaptureScreen();
+    } else if (screen === 'inbox') {
+      content = renderInboxScreen();
+    } else if (screen === 'todoList') {
+      content = renderTodoListScreen();
+    } else if (screen === 'thinking') {
+      content = renderThinkingScreen();
+    } else if (screen === 'settings') {
+      content = renderSettingsScreen();
+    } else if (screen === 'help') {
+      content = renderHelpScreen();
+    } else {
+      content = renderHomeScreen();
     }
 
-    if (screen === 'newCard' || screen === 'editCard') {
-      return renderCardFormScreen(screen);
-    }
-
-    if (screen === 'newCategory' || screen === 'editCategory') {
-      return renderCategoryFormScreen(screen);
-    }
-
-    if (screen === 'categoryPicker') {
-      return renderCategoryPickerScreen();
-    }
-
-    if (screen === 'cardList') {
-      return renderCardListScreen();
-    }
-
-    if (screen === 'askCards') {
-      return renderAskCardsScreen();
-    }
-
-    if (screen === 'quickCapture') {
-      return renderQuickCaptureScreen();
-    }
-
-    if (screen === 'inbox') {
-      return renderInboxScreen();
-    }
-
-    if (screen === 'todoList') {
-      return renderTodoListScreen();
-    }
-
-    if (screen === 'thinking') {
-      return renderThinkingScreen();
-    }
-
-    if (screen === 'settings') {
-      return renderSettingsScreen();
-    }
-
-    if (screen === 'help') {
-      return renderHelpScreen();
-    }
-
-    return renderHomeScreen();
+    return (
+      <ErrorBoundary key={screen} darkMode={settings.darkMode}>
+        {content}
+      </ErrorBoundary>
+    );
   };
 
   const renderScrollShell = (content: React.ReactNode, key: string) => (

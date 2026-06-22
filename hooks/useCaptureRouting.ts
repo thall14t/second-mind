@@ -46,13 +46,14 @@ import { parseTodosFromCapture } from '../utils/todoParsing';
 import { sanitizeTodoGeneration } from '../utils/todoGenerationSanitize';
 import { ensureTodoSortOrders } from '../utils/todoTree';
 import { useCaptureJobs } from './useCaptureJobs';
-
-const AI_RESPONSE_CACHE_LIMIT = 40;
-const CLASSIFY_CAPTURE_TIMEOUT_MS = 12_000;
-const ENRICH_CAPTURE_TIMEOUT_MS = 18_000;
-const GENERATE_TODOS_TIMEOUT_MS = 18_000;
-const FILING_SUGGESTION_TIMEOUT_MS = 20_000;
-const ROUTE_AND_ENRICH_TIMEOUT_MS = 24_000;
+import {
+  AI_RESPONSE_CACHE_LIMIT,
+  CLASSIFY_CAPTURE_TIMEOUT_MS,
+  ENRICH_CAPTURE_TIMEOUT_MS,
+  GENERATE_TODOS_TIMEOUT_MS,
+  FILING_SUGGESTION_TIMEOUT_MS,
+  ROUTE_AND_ENRICH_TIMEOUT_MS,
+} from '../constants';
 
 const rememberCachedAiValue = <T,>(cache: Map<string, T>, key: string, value: T) => {
   if (cache.has(key)) {
